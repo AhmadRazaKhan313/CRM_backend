@@ -1,3 +1,86 @@
-from django.shortcuts import render
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
-# Create your views here.
+from .models import Task, TaskComment
+from .serializers import (
+    TaskListSerializer, TaskDetailSerializer,
+    TaskCreateSerializer, TaskCommentSerializer
+)
+from core.permissions import IsAnyEmployee, IsManagerOrAbove
+
+
+class TaskListCreateView(APIView):
+    permission_classes = (IsAnyEmployee,)
+
+    def get(self, request):
+        qs = Task.objects.filter(
+            tenant=request.user.tenant
+        ).select_related("assigned_to", "assigned_by")
+
+        status_f = request.query_params.get("status")
+        priority_f = request.query_params.get("priority")
+        dept_f = request.query_params.get("department")
+
+        if status_f:
+            qs = qs.filter(status=status_f)
+        if priority_f:
+            qs = qs.filter(priority=priority_f)
+        if dept_f:
+            qs = qs.filter(department=dept_f)
+
+        if request.user.role in ("lead_employee", "sales_employee"):
+            qs = qs.filter(assigned_to=request.user)
+
+        if request.user.role in ("lead_manager", "sales_manager", "dept_head"):
+            qs = qs.filter(department=request.user.department)
+
+        return Response(TaskListSerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = TaskCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        task = serializer.save()
+        return Response(TaskDetailSerializer(task).data, status=status.HTTP_201_CREATED)
+
+
+class TaskDetailView(APIView):
+    permission_classes = (IsAnyEmployee,)
+
+    def _get_task(self, pk, user):
+        return get_object_or_404(Task, pk=pk, tenant=user.tenant)
+
+    def get(self, request, pk):
+        task = self._get_task(pk, request.user)
+        return Response(TaskDetailSerializer(task).data)
+
+    def patch(self, request, pk):
+        task = self._get_task(pk, request.user)
+        for attr, val in request.data.items():
+            setattr(task, attr, val)
+        if "status" in request.data and request.data["status"] == "completed":
+            task.completed_at = timezone.now()
+        task.save()
+        return Response(TaskDetailSerializer(task).data)
+
+    def delete(self, request, pk):
+        if request.user.role not in ("ceo", "coo", "dept_head"):
+            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
+        task = self._get_task(pk, request.user)
+        task.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TaskCommentView(APIView):
+    permission_classes = (IsAnyEmployee,)
+
+    def post(self, request, pk):
+        task = get_object_or_404(Task, pk=pk, tenant=request.user.tenant)
+        comment = TaskComment.objects.create(
+            task=task,
+            comment=request.data.get("comment", ""),
+            created_by=request.user
+        )
+        return Response(TaskCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
