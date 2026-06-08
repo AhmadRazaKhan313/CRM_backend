@@ -21,25 +21,21 @@ class Lead(TenantModel):
         OTHER = "other", "Other"
 
     class Department(models.TextChoices):
-        ACADEMIC = "academic", "Academic"
+        SALES = "sales", "Sales"
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 
     # Basic Info
     full_name = models.CharField(max_length=120)
-    email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=60, blank=True)
-    company = models.CharField(max_length=120, blank=True)
-
-    # Lead Details
-    source = models.CharField(max_length=20, choices=Source.choices)
+    questionnaire = models.TextField(blank=True)
+    platform_link = models.URLField(blank=True)
+    source = models.CharField(max_length=20, choices=Source.choices, blank=True)
     department = models.CharField(max_length=20, choices=Department.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
-    service_interest = models.CharField(max_length=120, blank=True)
     notes = models.TextField(blank=True)
 
-    # Assignment
+    # People
     assigned_to = models.ForeignKey(
         "authentication.User",
         on_delete=models.SET_NULL,
@@ -52,11 +48,12 @@ class Lead(TenantModel):
         null=True,
         related_name="created_leads"
     )
-
-    # Social
-    instagram_url = models.URLField(blank=True)
-    facebook_url = models.URLField(blank=True)
-    linkedin_url = models.URLField(blank=True)
+    contacted_by = models.ForeignKey(
+        "authentication.User",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="contacted_leads"
+    )
 
     is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
