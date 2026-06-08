@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                 ('country', models.CharField(blank=True, max_length=60)),
                 ('company', models.CharField(blank=True, max_length=120)),
                 ('source', models.CharField(choices=[('instagram', 'Instagram'), ('facebook', 'Facebook'), ('linkedin', 'LinkedIn'), ('whatsapp', 'WhatsApp'), ('website', 'Website'), ('email', 'Email'), ('other', 'Other')], max_length=20)),
-                ('department', models.CharField(choices=[('academic', 'Academic'), ('tech', 'Tech'), ('seo', 'SEO')], max_length=20)),
+                ('department', models.CharField(choices=[('sales', 'sales'), ('tech', 'Tech'), ('seo', 'SEO')], max_length=20)),
                 ('status', models.CharField(choices=[('new', 'New'), ('contacted', 'Contacted'), ('interested', 'Interested'), ('follow_up', 'Follow Up'), ('converted', 'Converted'), ('rejected', 'Rejected')], default='new', max_length=20)),
                 ('service_interest', models.CharField(blank=True, max_length=120)),
                 ('notes', models.TextField(blank=True)),

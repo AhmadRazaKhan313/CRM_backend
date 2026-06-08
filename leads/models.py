@@ -21,7 +21,7 @@ class Lead(TenantModel):
         OTHER = "other", "Other"
 
     class Department(models.TextChoices):
-        ACADEMIC = "academic", "Academic"
+        SALES = "sales", "Sales"
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 

@@ -10,7 +10,7 @@ class Client(TenantModel):
         CANCELLED = "cancelled", "Cancelled"
 
     class Department(models.TextChoices):
-        ACADEMIC = "academic", "Academic"
+        SALES = "sales", "Sales"
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 
@@ -64,23 +64,22 @@ class Client(TenantModel):
         return self.full_name
 
 
-class AcademicDetail(models.Model):
-    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="academic_detail")
-    service_type = models.CharField(max_length=60)
-    academic_level = models.CharField(max_length=30)
-    subject = models.CharField(max_length=120)
-    topic = models.CharField(max_length=200, blank=True)
-    deadline = models.DateField(null=True, blank=True)
-    pages = models.PositiveIntegerField(null=True, blank=True)
-    word_count = models.PositiveIntegerField(null=True, blank=True)
-    citation_style = models.CharField(max_length=20, blank=True)
-    reference_count = models.PositiveIntegerField(null=True, blank=True)
-    special_instructions = models.TextField(blank=True)
+class SalesDetail(models.Model):
+    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="sales_detail")
+    questionnaire = models.TextField(blank=True)
+    platform = models.CharField(max_length=20, blank=True, choices=[
+        ("instagram", "Instagram"),
+        ("facebook", "Facebook"),
+        ("linkedin", "LinkedIn"),
+        ("whatsapp", "WhatsApp"),
+        ("website", "Website"),
+        ("email", "Email"),
+    ])
+    platform_link = models.URLField(blank=True)
 
     class Meta:
-        db_table = "academic_details"
-
-
+        db_table = "sales_details"
+        
 class TechDetail(models.Model):
     client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="tech_detail")
     service_type = models.CharField(max_length=60)
