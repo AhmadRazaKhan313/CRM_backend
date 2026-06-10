@@ -21,7 +21,7 @@ class Lead(TenantModel):
         OTHER = "other", "Other"
 
     class Department(models.TextChoices):
-        ACADEMIC = "academic", "Academic"
+        SALES = "sales", "Sales"
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 
@@ -38,6 +38,8 @@ class Lead(TenantModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     service_interest = models.CharField(max_length=120, blank=True)
     notes = models.TextField(blank=True)
+    questionnaire = models.TextField(blank=True)
+    platform_link = models.URLField(blank=True)
 
     # Assignment
     assigned_to = models.ForeignKey(
@@ -51,6 +53,12 @@ class Lead(TenantModel):
         on_delete=models.SET_NULL,
         null=True,
         related_name="created_leads"
+    )
+    contacted_by = models.ForeignKey(
+        "authentication.User",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="contacted_leads"
     )
 
     # Social

@@ -13,6 +13,8 @@ urlpatterns = [
     path("api/tasks/", include("tasks.urls")),
     path("api/reports/", include("reports.urls")),
     path("api/departments/", include("departments.urls")),
+    path("api/analytics/", include("analytics.urls")),
+    path("api/hrms/", include("hrms.urls")),         # HRMS
 ]
 
 if settings.DEBUG:

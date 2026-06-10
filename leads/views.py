@@ -18,9 +18,8 @@ class LeadListCreateView(APIView):
         qs = Lead.objects.filter(
             tenant=request.user.tenant,
             is_archived=False
-        ).select_related("assigned_to", "created_by")
+        ).select_related("assigned_to", "created_by", "contacted_by")
 
-        # filters
         status_f = request.query_params.get("status")
         dept_f = request.query_params.get("department")
         source_f = request.query_params.get("source")
@@ -33,23 +32,23 @@ class LeadListCreateView(APIView):
         if source_f:
             qs = qs.filter(source=source_f)
         if search:
-            qs = qs.filter(full_name__icontains=search) | qs.filter(email__icontains=search)
+            qs = qs.filter(full_name__icontains=search) | qs.filter(country__icontains=search)
 
-        # employees sirf apne leads dekhein
-        if request.user.role in ("lead_employee", "sales_employee"):
-            qs = qs.filter(assigned_to=request.user)
+        if request.user.is_super_admin or request.user.role in ("ceo", "coo", "sales_director"):
+            return Response(LeadListSerializer(qs, many=True).data)
 
-        # dept isolation
-        if request.user.role in ("lead_manager", "sales_manager", "dept_head"):
+        if request.user.role in ("dept_head", "lead_manager", "sales_manager"):
             qs = qs.filter(department=request.user.department)
+        elif request.user.role in ("lead_employee", "sales_employee"):
+            qs = qs.filter(assigned_to=request.user)
 
         return Response(LeadListSerializer(qs, many=True).data)
 
     def post(self, request):
         serializer = LeadCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        lead = serializer.save()
-        return Response(LeadDetailSerializer(lead).data, status=status.HTTP_201_CREATED)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class LeadDetailView(APIView):

@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "analytics",
     "tenants",
     "core",
+    "hrms",
 ]
 
 MIDDLEWARE = [
