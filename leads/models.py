@@ -25,6 +25,9 @@ class Lead(TenantModel):
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 
+    # Serial No — auto-generate, but editable
+    serial_no = models.CharField(max_length=20, blank=True, unique=False)
+
     # Basic Info
     full_name = models.CharField(max_length=120)
     email = models.EmailField(blank=True)
@@ -41,6 +44,15 @@ class Lead(TenantModel):
     questionnaire = models.TextField(blank=True)
     platform_link = models.URLField(blank=True)
 
+    # Lead contact info
+    contact_no = models.CharField(max_length=20, blank=True)
+
+    # Lead ki platform IDs
+    lead_insta_id = models.CharField(max_length=100, blank=True)
+    lead_fb_id = models.CharField(max_length=100, blank=True)
+    lead_linkedin_id = models.CharField(max_length=100, blank=True)
+    lead_whatsapp_no = models.CharField(max_length=20, blank=True)
+
     # Assignment
     assigned_to = models.ForeignKey(
         "authentication.User",
@@ -54,14 +66,14 @@ class Lead(TenantModel):
         null=True,
         related_name="created_leads"
     )
-    contacted_by = models.ForeignKey(
-        "authentication.User",
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="contacted_leads"
-    )
 
-    # Social
+    # Staff ke platform IDs (is lead ke liye konsa account use kiya)
+    staff_insta_id = models.CharField(max_length=100, blank=True)
+    staff_fb_id = models.CharField(max_length=100, blank=True)
+    staff_linkedin_id = models.CharField(max_length=100, blank=True)
+    staff_whatsapp_id = models.CharField(max_length=20, blank=True)
+
+    # Social URLs
     instagram_url = models.URLField(blank=True)
     facebook_url = models.URLField(blank=True)
     linkedin_url = models.URLField(blank=True)
@@ -76,6 +88,36 @@ class Lead(TenantModel):
 
     def __str__(self):
         return f"{self.full_name} — {self.status}"
+
+    # ✅ Serial No auto-generate: 001, 002...
+    def save(self, *args, **kwargs):
+        if not self.serial_no:
+            last = (
+                Lead.objects.filter(tenant=self.tenant)
+                .exclude(serial_no="")
+                .order_by("-serial_no")
+                .first()
+            )
+            if last and last.serial_no.isdigit():
+                next_num = int(last.serial_no) + 1
+            else:
+                next_num = 1
+            self.serial_no = str(next_num).zfill(3)
+        super().save(*args, **kwargs)
+
+    # ✅ FIX: get_full_name()/username nahi — User model mein sirf full_name hai
+    @property
+    def staff_name(self):
+        if self.assigned_to:
+            return self.assigned_to.full_name or ""
+        return ""
+
+    # ✅ Staff ID — assigned_to ka employee_id
+    @property
+    def staff_id(self):
+        if self.assigned_to:
+            return getattr(self.assigned_to, "employee_id", "") or ""
+        return ""
 
 
 class LeadActivity(models.Model):
