@@ -23,17 +23,14 @@ class EmployeeListCreateView(APIView):
         ).select_related("tenant").prefetch_related("assigned_roles__role")
 
         department = request.query_params.get("department")
-        role = request.query_params.get("role")
-        search = request.query_params.get("search")
+        role       = request.query_params.get("role")
+        search     = request.query_params.get("search")
 
-        if department:
-            qs = qs.filter(department=department)
-        if role:
-            qs = qs.filter(role=role)
+        if department: qs = qs.filter(department=department)
+        if role:       qs = qs.filter(role=role)
         if search:
             qs = qs.filter(full_name__icontains=search) | qs.filter(email__icontains=search)
 
-        # dept heads sirf apna department dekh sakte hain
         if request.user.role == "dept_head":
             qs = qs.filter(department=request.user.department)
 
@@ -46,10 +43,7 @@ class EmployeeListCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         employee = serializer.save()
-        return Response(
-            EmployeeListSerializer(employee).data,
-            status=status.HTTP_201_CREATED
-        )
+        return Response(EmployeeListSerializer(employee).data, status=status.HTTP_201_CREATED)
 
 
 class EmployeeDetailView(APIView):
@@ -67,10 +61,11 @@ class EmployeeDetailView(APIView):
         serializer = EmployeeUpdateSerializer(emp, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        emp.refresh_from_db()
         return Response(EmployeeListSerializer(emp).data)
 
     def delete(self, request, pk):
-        if not request.user.role in ("ceo", "coo"):
+        if not (request.user.is_super_admin or request.user.role in ("ceo", "coo")):
             return Response(
                 {"detail": "Only CEO/COO can remove employees."},
                 status=status.HTTP_403_FORBIDDEN
@@ -85,23 +80,47 @@ class EmployeeRoleAssignView(APIView):
     permission_classes = (IsDeptHeadOrAbove,)
 
     def post(self, request, pk):
-        emp = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
+        emp     = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
         role_id = request.data.get("role_id")
-        role = get_object_or_404(Role, pk=role_id, tenant=request.user.tenant)
+        role    = get_object_or_404(Role, pk=role_id, tenant=request.user.tenant)
         user_role, created = UserRole.objects.get_or_create(
-            user=emp,
-            role=role,
+            user=emp, role=role,
             defaults={"assigned_by": request.user}
         )
         if not created:
-            return Response(
-                {"detail": "Role already assigned."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Role already assigned."}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"detail": "Role assigned."}, status=status.HTTP_201_CREATED)
 
     def delete(self, request, pk):
-        emp = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
+        emp     = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
         role_id = request.data.get("role_id")
         UserRole.objects.filter(user=emp, role_id=role_id).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# Admin employee ka password reset kar sake
+class AdminPasswordResetView(APIView):
+    permission_classes = (IsDeptHeadOrAbove,)
+
+    def post(self, request, pk):
+        emp = get_object_or_404(
+            User,
+            pk=pk,
+            tenant=request.user.tenant,
+            is_super_admin=False
+        )
+        new_password = request.data.get("new_password", "")
+
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "Password must be at least 8 characters long."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        emp.set_password(new_password)
+        emp.save()
+
+        return Response(
+            {"detail": "Only CEO or COO can deactivate employees."},
+            status=status.HTTP_403_FORBIDDEN
+)

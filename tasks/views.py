@@ -9,27 +9,32 @@ from .serializers import (
     TaskListSerializer, TaskDetailSerializer,
     TaskCreateSerializer, TaskCommentSerializer
 )
-from core.permissions import IsAnyEmployee, IsManagerOrAbove
+from core.permissions import IsAnyEmployee, IsManagerOrAbove, FeatureRequired
+
+FEATURE = FeatureRequired("tasks_module")
+
+# ✅ FIX: Sirf yeh fields update ho sakti hain
+TASK_PATCH_ALLOWED = {
+    "title", "description", "priority", "status",
+    "department", "assigned_to", "due_date", "notes",
+}
 
 
 class TaskListCreateView(APIView):
-    permission_classes = (IsAnyEmployee,)
+    permission_classes = (IsAnyEmployee, FEATURE)
 
     def get(self, request):
         qs = Task.objects.filter(
             tenant=request.user.tenant
         ).select_related("assigned_to", "assigned_by")
 
-        status_f = request.query_params.get("status")
+        status_f   = request.query_params.get("status")
         priority_f = request.query_params.get("priority")
-        dept_f = request.query_params.get("department")
+        dept_f     = request.query_params.get("department")
 
-        if status_f:
-            qs = qs.filter(status=status_f)
-        if priority_f:
-            qs = qs.filter(priority=priority_f)
-        if dept_f:
-            qs = qs.filter(department=dept_f)
+        if status_f:   qs = qs.filter(status=status_f)
+        if priority_f: qs = qs.filter(priority=priority_f)
+        if dept_f:     qs = qs.filter(department=dept_f)
 
         if request.user.role in ("lead_employee", "sales_employee"):
             qs = qs.filter(assigned_to=request.user)
@@ -47,26 +52,36 @@ class TaskListCreateView(APIView):
 
 
 class TaskDetailView(APIView):
-    permission_classes = (IsAnyEmployee,)
+    permission_classes = (IsAnyEmployee, FEATURE)
 
     def _get_task(self, pk, user):
         return get_object_or_404(Task, pk=pk, tenant=user.tenant)
 
     def get(self, request, pk):
-        task = self._get_task(pk, request.user)
-        return Response(TaskDetailSerializer(task).data)
+        return Response(TaskDetailSerializer(self._get_task(pk, request.user)).data)
 
     def patch(self, request, pk):
         task = self._get_task(pk, request.user)
-        for attr, val in request.data.items():
-            setattr(task, attr, val)
-        if "status" in request.data and request.data["status"] == "completed":
+        # ✅ FIX: setattr hataya — whitelist se safe update
+        safe_data = {k: v for k, v in request.data.items() if k in TASK_PATCH_ALLOWED}
+        serializer = TaskCreateSerializer(
+            task, data=safe_data, partial=True, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        task = serializer.save()
+        if safe_data.get("status") == "completed" and not task.completed_at:
             task.completed_at = timezone.now()
-        task.save()
+            task.save()
         return Response(TaskDetailSerializer(task).data)
 
     def delete(self, request, pk):
-        if request.user.role not in ("ceo", "coo", "dept_head"):
+        # ✅ FIX: is_super_admin bhi check hoga
+        user = request.user
+        can_delete = (
+            user.is_super_admin or
+            user.role in ("ceo", "coo", "dept_head")
+        )
+        if not can_delete:
             return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
         task = self._get_task(pk, request.user)
         task.delete()
@@ -74,7 +89,7 @@ class TaskDetailView(APIView):
 
 
 class TaskCommentView(APIView):
-    permission_classes = (IsAnyEmployee,)
+    permission_classes = (IsAnyEmployee, FEATURE)
 
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk, tenant=request.user.tenant)

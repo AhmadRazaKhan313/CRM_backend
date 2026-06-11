@@ -10,7 +10,7 @@ class Client(TenantModel):
         CANCELLED = "cancelled", "Cancelled"
 
     class Department(models.TextChoices):
-        ACADEMIC = "academic", "Academic"
+        SALES = "sales", "Sales"
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 
@@ -64,11 +64,11 @@ class Client(TenantModel):
         return self.full_name
 
 
-class AcademicDetail(models.Model):
-    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="academic_detail")
+class SalesDetail(models.Model):
+    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="sales_detail")
     service_type = models.CharField(max_length=60)
-    academic_level = models.CharField(max_length=30)
-    subject = models.CharField(max_length=120)
+    academic_level = models.CharField(max_length=30, blank=True)
+    subject = models.CharField(max_length=120, blank=True)
     topic = models.CharField(max_length=200, blank=True)
     deadline = models.DateField(null=True, blank=True)
     pages = models.PositiveIntegerField(null=True, blank=True)
@@ -78,7 +78,7 @@ class AcademicDetail(models.Model):
     special_instructions = models.TextField(blank=True)
 
     class Meta:
-        db_table = "academic_details"
+        db_table = "sales_details"
 
 
 class TechDetail(models.Model):
