@@ -18,10 +18,6 @@ class LoginSerializer(serializers.Serializer):
 
 
 class TenantMiniSerializer(serializers.Serializer):
-    """
-    Login response mein tenant + feature flags include karne ke liye.
-    Sirf jo frontend ko chahiye woh fields.
-    """
     id = serializers.IntegerField()
     name = serializers.CharField()
     slug = serializers.CharField()
@@ -39,13 +35,17 @@ class TenantMiniSerializer(serializers.Serializer):
                 "multi_department": f.multi_department,
                 "custom_branding": f.custom_branding,
                 "api_access": f.api_access,
+                "leads_module": f.leads_module,
+                "clients_module": f.clients_module,
+                "tasks_module": f.tasks_module,
+                "reports_module": f.reports_module,
+                "departments_module": f.departments_module,
             }
         except Exception:
             return {}
 
 
 class UserSerializer(serializers.ModelSerializer):
-    # ✅ Login response mein tenant + features bhi aayega
     tenant = TenantMiniSerializer(read_only=True)
 
     class Meta:

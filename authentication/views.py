@@ -22,7 +22,7 @@ class LoginView(APIView):
     permission_classes = (AllowAny,)
 
     def post(self, request):
-        email = request.data.get("email", "").lower().strip()
+        email    = request.data.get("email", "").lower().strip()
         password = request.data.get("password", "")
 
         try:
@@ -71,3 +71,51 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+# ✅ NEW: Password change endpoint
+class ChangePasswordView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        user         = request.user
+        old_password = request.data.get("old_password", "")
+        new_password = request.data.get("new_password", "")
+
+        if not old_password or not new_password:
+            return Response(
+                {"detail": "old_password aur new_password dono required hain."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not user.check_password(old_password):
+            return Response(
+                {"detail": "Purana password galat hai."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "Naya password kam se kam 8 characters ka hona chahiye."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if old_password == new_password:
+            return Response(
+                {"detail": "Naya password purane se alag hona chahiye."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.set_password(new_password)
+        user.save()
+
+        # Purane tokens blacklist karo — dobara login zaroori
+        try:
+            RefreshToken(request.data.get("refresh", "")).blacklist()
+        except Exception:
+            pass
+
+        return Response(
+            {"detail": "Password successfully change ho gaya. Dobara login karein."},
+            status=status.HTTP_200_OK
+        )
