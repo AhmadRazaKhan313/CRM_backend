@@ -37,7 +37,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
-    "tenants.middleware.TenantMiddleware", 
+    "tenants.middleware.TenantMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -109,6 +109,18 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+# ✅ FIX: Frontend ko Content-Disposition header expose karo
+# Ye missing tha — is wajah se file download kaam nahi kar rahi thi.
+# Browser CORS ke through sirf "simple" headers expose karta hai by default,
+# Content-Disposition unme nahi hota. Ye add karne ke baad frontend
+# filename read kar sakta hai aur download trigger ho sakta hai.
+CORS_EXPOSE_HEADERS = [
+    "Content-Disposition",
+    "Content-Type",
+    "Content-Length",
+]
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
