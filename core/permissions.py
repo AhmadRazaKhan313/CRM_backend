@@ -1,15 +1,15 @@
 from rest_framework.permissions import BasePermission
 
 ROLE_HIERARCHY = {
-    "super_admin": 100,
-    "ceo": 90,
-    "coo": 80,
-    "dept_head": 70,
-    "sales_director": 65,
-    "lead_manager": 50,
-    "sales_manager": 50,
-    "lead_employee": 30,
-    "sales_employee": 30,
+    "super_admin":    100,
+    "ceo":             90,
+    "coo":             80,
+    "dept_head":       70,
+    "sales_director":  65,
+    "lead_manager":    50,
+    "sales_manager":   50,
+    "lead_employee":   30,
+    "sales_employee":  30,
 }
 
 
@@ -31,32 +31,34 @@ def same_department(user, obj):
     return getattr(obj, "department", None) == user.department
 
 
-# ─────────────────────────────────────────────
-# Feature Flag Helper
-# ─────────────────────────────────────────────
-
 def tenant_has_feature(user, feature_name: str) -> bool:
-    """
-    Check karta hai ke user ke tenant mein yeh feature enabled hai ya nahi.
-    Super admin ko hamesha True milta hai.
-    """
     if user.is_super_admin:
         return True
     try:
-        features = user.tenant.features
-        return bool(getattr(features, feature_name, False))
+        return bool(getattr(user.tenant.features, feature_name, False))
     except Exception:
         return False
 
 
-def FeatureRequired(feature_name: str):
+def user_has_permission(user, codename: str) -> bool:
     """
-    Factory function — returns a DRF permission class jo
-    specific feature flag check karta hai.
+    Check if user has a specific custom permission
+    through any of their assigned custom roles.
 
-    Usage in views:
-        permission_classes = [IsAuthenticated, FeatureRequired("analytics")]
+    Usage:
+        if user_has_permission(user, "leads.export"):
+            ...
     """
+    if user.is_super_admin:
+        return True
+    from core.models import UserRole
+    return UserRole.objects.filter(
+        user=user,
+        role__permissions__codename=codename
+    ).exists()
+
+
+def FeatureRequired(feature_name: str):
     class _FeaturePermission(BasePermission):
         message = f"Your plan does not include the '{feature_name}' module."
 
@@ -69,9 +71,27 @@ def FeatureRequired(feature_name: str):
     return _FeaturePermission
 
 
-# ─────────────────────────────────────────────
-# Role-Based Permissions (existing — unchanged)
-# ─────────────────────────────────────────────
+def HasCustomPermission(codename: str):
+    """
+    DRF permission class — checks if user has a specific
+    custom permission through their assigned roles.
+
+    Usage in views:
+        permission_classes = (IsManagerOrAbove, HasCustomPermission("leads.export"))
+    """
+    class _CustomPermission(BasePermission):
+        message = f"You don't have permission: {codename}"
+
+        def has_permission(self, request, view):
+            if not request.user.is_authenticated:
+                return False
+            return user_has_permission(request.user, codename)
+
+    _CustomPermission.__name__ = f"CustomPerm_{codename}"
+    return _CustomPermission
+
+
+# ── Standard Role-Based Permission Classes ────────────────
 
 class IsSuperAdmin(BasePermission):
     def has_permission(self, request, view):
@@ -118,7 +138,6 @@ class IsManagerOrAbove(BasePermission):
 
 
 class IsAnyEmployee(BasePermission):
-    """Any authenticated user of the tenant."""
     def has_permission(self, request, view):
         return request.user.is_authenticated and (
             request.user.tenant_id is not None or request.user.is_super_admin
@@ -126,13 +145,11 @@ class IsAnyEmployee(BasePermission):
 
 
 class TenantObjectPermission(BasePermission):
-    """Object-level — user can only access objects in their tenant."""
     def has_object_permission(self, request, view, obj):
         return same_tenant(request.user, obj)
 
 
 class DepartmentObjectPermission(BasePermission):
-    """Object-level — user can only access objects in their department."""
     def has_object_permission(self, request, view, obj):
         if not same_tenant(request.user, obj):
             return False
