@@ -9,7 +9,7 @@ from .serializers_employees import (
     EmployeeCreateSerializer,
     EmployeeUpdateSerializer,
 )
-from core.permissions import IsCEOOrAbove, IsDeptHeadOrAbove, IsManagerOrAbove
+from core.permissions import IsDeptHeadOrAbove
 from core.models import UserRole, Role
 
 
@@ -57,7 +57,7 @@ class EmployeeDetailView(APIView):
         return Response(EmployeeListSerializer(emp).data)
 
     def patch(self, request, pk):
-        emp = self._get_employee(pk, request.user.tenant)
+        emp        = self._get_employee(pk, request.user.tenant)
         serializer = EmployeeUpdateSerializer(emp, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -67,7 +67,7 @@ class EmployeeDetailView(APIView):
     def delete(self, request, pk):
         if not (request.user.is_super_admin or request.user.role in ("ceo", "coo")):
             return Response(
-                {"detail": "Only CEO/COO can remove employees."},
+                {"detail": "Only CEO/COO can deactivate employees."},
                 status=status.HTTP_403_FORBIDDEN
             )
         emp = self._get_employee(pk, request.user.tenant)
@@ -88,8 +88,11 @@ class EmployeeRoleAssignView(APIView):
             defaults={"assigned_by": request.user}
         )
         if not created:
-            return Response({"detail": "Role already assigned."}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"detail": "Role assigned."}, status=status.HTTP_201_CREATED)
+            return Response(
+                {"detail": "Role already assigned."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response({"detail": "Role assigned successfully."}, status=status.HTTP_201_CREATED)
 
     def delete(self, request, pk):
         emp     = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
@@ -98,29 +101,19 @@ class EmployeeRoleAssignView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# Admin employee ka password reset kar sake
 class AdminPasswordResetView(APIView):
     permission_classes = (IsDeptHeadOrAbove,)
 
     def post(self, request, pk):
-        emp = get_object_or_404(
-            User,
-            pk=pk,
-            tenant=request.user.tenant,
-            is_super_admin=False
-        )
+        emp          = get_object_or_404(User, pk=pk, tenant=request.user.tenant, is_super_admin=False)
         new_password = request.data.get("new_password", "")
 
         if len(new_password) < 8:
             return Response(
-                {"detail": "Password must be at least 8 characters long."},
+                {"detail": "Password must be at least 8 characters."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         emp.set_password(new_password)
         emp.save()
-
-        return Response(
-            {"detail": "Only CEO or COO can deactivate employees."},
-            status=status.HTTP_403_FORBIDDEN
-)
+        return Response({"detail": f"Password reset successfully for {emp.full_name}."})
