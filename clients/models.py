@@ -66,6 +66,7 @@ class Client(TenantModel):
 
 class SalesDetail(models.Model):
     client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="sales_detail")
+<<<<<<< HEAD
     questionnaire = models.TextField(blank=True)
     platform = models.CharField(max_length=20, blank=True, choices=[
         ("instagram", "Instagram"),
@@ -80,6 +81,23 @@ class SalesDetail(models.Model):
     class Meta:
         db_table = "sales_details"
         
+=======
+    service_type = models.CharField(max_length=60)
+    academic_level = models.CharField(max_length=30, blank=True)
+    subject = models.CharField(max_length=120, blank=True)
+    topic = models.CharField(max_length=200, blank=True)
+    deadline = models.DateField(null=True, blank=True)
+    pages = models.PositiveIntegerField(null=True, blank=True)
+    word_count = models.PositiveIntegerField(null=True, blank=True)
+    citation_style = models.CharField(max_length=20, blank=True)
+    reference_count = models.PositiveIntegerField(null=True, blank=True)
+    special_instructions = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "sales_details"
+
+
+>>>>>>> main
 class TechDetail(models.Model):
     client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="tech_detail")
     service_type = models.CharField(max_length=60)
