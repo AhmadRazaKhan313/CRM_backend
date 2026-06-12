@@ -73,7 +73,6 @@ class MeView(APIView):
         return Response(serializer.data)
 
 
-# ✅ NEW: Password change endpoint
 class ChangePasswordView(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -84,38 +83,37 @@ class ChangePasswordView(APIView):
 
         if not old_password or not new_password:
             return Response(
-                {"detail": "old_password aur new_password dono required hain."},
+                {"detail": "Both old_password and new_password are required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if not user.check_password(old_password):
             return Response(
-                {"detail": "Purana password galat hai."},
+                {"detail": "Current password is incorrect."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if len(new_password) < 8:
             return Response(
-                {"detail": "Naya password kam se kam 8 characters ka hona chahiye."},
+                {"detail": "New password must be at least 8 characters."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if old_password == new_password:
             return Response(
-                {"detail": "Naya password purane se alag hona chahiye."},
+                {"detail": "New password must be different from the current password."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         user.set_password(new_password)
         user.save()
 
-        # Purane tokens blacklist karo — dobara login zaroori
         try:
             RefreshToken(request.data.get("refresh", "")).blacklist()
         except Exception:
             pass
 
         return Response(
-            {"detail": "Password successfully change ho gaya. Dobara login karein."},
+            {"detail": "Password changed successfully. Please log in again."},
             status=status.HTTP_200_OK
         )
