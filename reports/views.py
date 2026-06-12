@@ -9,6 +9,7 @@ from .serializers import (
     DailyReportCreateSerializer, ReportReviewSerializer
 )
 from core.permissions import IsAnyEmployee, IsManagerOrAbove, FeatureRequired
+from notifications.utils import notify
 
 FEATURE = FeatureRequired("reports_module")
 
