@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 ('email', models.EmailField(max_length=254, unique=True)),
                 ('full_name', models.CharField(max_length=120)),
                 ('role', models.CharField(choices=[('ceo', 'CEO'), ('coo', 'COO'), ('dept_head', 'Department Head'), ('sales_director', 'Sales Director'), ('lead_manager', 'Lead Manager'), ('sales_manager', 'Sales Manager'), ('lead_employee', 'Lead Employee'), ('sales_employee', 'Sales Employee')], max_length=20)),
-                ('department', models.CharField(blank=True, choices=[('academic', 'Academic'), ('tech', 'Tech'), ('seo', 'SEO')], max_length=20, null=True)),
+                ('department', models.CharField(blank=True, choices=[('sales', 'sales'), ('tech', 'Tech'), ('seo', 'SEO')], max_length=20, null=True)),
                 ('employee_id', models.CharField(blank=True, max_length=20, null=True, unique=True)),
                 ('is_active', models.BooleanField(default=True)),
                 ('is_staff', models.BooleanField(default=False)),
