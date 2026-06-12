@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 
 from .models import Permission, Role, UserRole
 from .serializers import (
@@ -15,7 +16,7 @@ class PermissionListView(APIView):
     permission_classes = (IsDeptHeadOrAbove,)
 
     def get(self, request):
-        perms = Permission.objects.all()
+        perms  = Permission.objects.all()
         module = request.query_params.get("module")
         if module:
             perms = perms.filter(module=module)
@@ -26,7 +27,10 @@ class RoleListCreateView(APIView):
     permission_classes = (IsCEOOrAbove,)
 
     def get(self, request):
-        roles = Role.objects.filter(tenant=request.user.tenant).prefetch_related("permissions")
+        # System roles + tenant custom roles dono show karo
+        roles = Role.objects.filter(
+            Q(tenant=request.user.tenant) | Q(is_system=True)
+        ).prefetch_related("permissions").order_by("-is_system", "name")
         return Response(RoleSerializer(roles, many=True).data)
 
     def post(self, request):
@@ -40,14 +44,20 @@ class RoleDetailView(APIView):
     permission_classes = (IsCEOOrAbove,)
 
     def _get_role(self, pk, tenant):
+        # System roles edit/delete nahi ho sakti
         return get_object_or_404(Role, pk=pk, tenant=tenant, is_system=False)
 
     def get(self, request, pk):
-        role = self._get_role(pk, request.user.tenant)
+        # System roles view kar sakte hain
+        role = get_object_or_404(
+            Role.objects.filter(
+                Q(tenant=request.user.tenant) | Q(is_system=True)
+            ), pk=pk
+        )
         return Response(RoleSerializer(role).data)
 
     def patch(self, request, pk):
-        role = self._get_role(pk, request.user.tenant)
+        role       = self._get_role(pk, request.user.tenant)
         serializer = RoleSerializer(role, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -68,13 +78,14 @@ class AssignRoleView(APIView):
     permission_classes = (IsDeptHeadOrAbove,)
 
     def post(self, request):
-        serializer = AssignRoleSerializer(data=request.data, context={"request": request})
+        serializer = AssignRoleSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
         role = serializer.validated_data["role"]
         user_role, created = UserRole.objects.get_or_create(
-            user=user,
-            role=role,
+            user=user, role=role,
             defaults={"assigned_by": request.user}
         )
         if not created:
