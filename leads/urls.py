@@ -11,4 +11,5 @@ urlpatterns = [
     path("<int:pk>/",          views.LeadDetailView.as_view()),
     path("<int:pk>/assign/",   views.LeadAssignView.as_view()),
     path("<int:pk>/activity/", views.LeadActivityView.as_view()),
+    path("<int:pk>/convert/", views.LeadConvertView.as_view()),
 ]
