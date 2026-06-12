@@ -15,7 +15,7 @@ class Tenant(models.Model):
         CANCELLED = "cancelled", "Cancelled"
 
     name = models.CharField(max_length=120)
-    slug = models.SlugField(unique=True)  # decibels, xyz-corp
+    slug = models.SlugField(unique=True)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=20, blank=True)
     logo = models.ImageField(upload_to="tenants/logos/", blank=True, null=True)
@@ -39,12 +39,22 @@ class TenantFeature(models.Model):
     """Per-tenant feature flags."""
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="features")
 
-    hrms = models.BooleanField(default=False)
-    analytics = models.BooleanField(default=True)
-    ai_assistant = models.BooleanField(default=False)
-    multi_department = models.BooleanField(default=True)
-    custom_branding = models.BooleanField(default=False)
-    api_access = models.BooleanField(default=False)
+    # ── Core CRM Modules ──────────────────────────────────────
+    leads_module    = models.BooleanField(default=True)
+    clients_module  = models.BooleanField(default=True)
+    tasks_module    = models.BooleanField(default=True)
+    reports_module  = models.BooleanField(default=True)
+    departments_module = models.BooleanField(default=True)
+
+    # ── Add-on Modules ────────────────────────────────────────
+    analytics       = models.BooleanField(default=True)
+    hrms            = models.BooleanField(default=False)
+    ai_assistant    = models.BooleanField(default=False)
+
+    # ── Platform Features ─────────────────────────────────────
+    multi_department  = models.BooleanField(default=True)
+    custom_branding   = models.BooleanField(default=False)
+    api_access        = models.BooleanField(default=False)
 
     class Meta:
         db_table = "tenant_features"
