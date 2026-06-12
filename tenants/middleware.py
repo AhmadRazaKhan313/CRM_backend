@@ -7,11 +7,9 @@ class TenantMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        host = request.get_host().split(":")[0]  # localhost:8000 → localhost
+        host  = request.get_host().split(":")[0]
         parts = host.split(".")
 
-        # subdomain.domain.com → subdomain is tenant slug
-        # localhost pe development mein header se lenge
         slug = request.headers.get("X-Tenant-Slug") or (
             parts[0] if len(parts) > 2 else None
         )
@@ -21,6 +19,11 @@ class TenantMiddleware:
                 tenant = Tenant.objects.select_related("features").get(
                     slug=slug, status__in=("active", "trial")
                 )
+                if not self._is_access_allowed(tenant):
+                    return JsonResponse(
+                        {"detail": "Trial expired. Please upgrade your plan."},
+                        status=402
+                    )
                 request.tenant = tenant
             except Tenant.DoesNotExist:
                 return JsonResponse({"detail": "Invalid tenant."}, status=404)
@@ -28,3 +31,14 @@ class TenantMiddleware:
             request.tenant = None
 
         return self.get_response(request)
+
+    def _is_access_allowed(self, tenant):
+        from django.utils import timezone
+        if tenant.status in ("suspended", "cancelled"):
+            return False
+        if tenant.status == "trial" and tenant.trial_ends_at:
+            if timezone.now() > tenant.trial_ends_at:
+                tenant.status = "suspended"
+                tenant.save(update_fields=["status"])
+                return False
+        return True
