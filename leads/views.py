@@ -13,6 +13,7 @@ from .serializers import (
     LeadCreateSerializer, LeadActivitySerializer
 )
 from core.permissions import IsManagerOrAbove, IsAnyEmployee, FeatureRequired
+from notifications.utils import notify
 
 FEATURE = FeatureRequired("leads_module")
 
@@ -51,8 +52,6 @@ EXAMPLE_ROW = [
     "@staff_insta", "staff_fb_id", "staff_li_id", "+0987654321",
 ]
 
-# ✅ FIX: Sirf yeh fields PATCH mein update ho sakti hain
-# tenant, id, created_by, is_archived — koi bhi set nahi kar sakta
 LEAD_PATCH_ALLOWED = {
     "full_name", "email", "phone", "contact_no", "country", "company",
     "source", "department", "status", "service_interest", "notes",
@@ -64,6 +63,43 @@ LEAD_PATCH_ALLOWED = {
 }
 
 
+# ✅ Helper — Lead se Client auto-create karo
+def _auto_create_client(lead, user):
+    """
+    When lead status becomes 'converted' — client is created automatically.
+    Skips if client already exists.
+    """
+    from clients.models import Client
+
+    # Skip if client already exists
+    if lead.converted_client.exists():
+        return lead.converted_client.first()
+
+    client = Client.objects.create(
+        tenant         = lead.tenant,
+        created_by     = user,
+        assigned_to    = lead.assigned_to,
+        converted_from = lead,
+        full_name      = lead.full_name,
+        email          = lead.email,
+        phone          = lead.phone or lead.contact_no,
+        country        = lead.country,
+        company        = lead.company,
+        department     = lead.department,
+        notes          = lead.notes,
+        status         = "active",
+    )
+
+    LeadActivity.objects.create(
+        lead          = lead,
+        activity_type = "status_change",
+        note          = f"Lead converted — client created automatically (ID: {client.id})",
+        created_by    = user,
+    )
+
+    return client
+
+
 def parse_row(row, index, tenant, user):
     errors = []
     full_name = str(row.get("full_name", "") or "").strip()
@@ -72,8 +108,8 @@ def parse_row(row, index, tenant, user):
     status_v  = str(row.get("status",   "new") or "new").strip().lower() or "new"
 
     if not full_name:               errors.append("full_name is empty")
-    if source not in VALID_SOURCES: errors.append(f"invalid source '{source}' — must be: {', '.join(VALID_SOURCES)}")
-    if dept not in VALID_DEPTS:     errors.append(f"invalid department '{dept}' — must be: {', '.join(VALID_DEPTS)}")
+    if source not in VALID_SOURCES: errors.append(f"invalid source '{source}'")
+    if dept not in VALID_DEPTS:     errors.append(f"invalid department '{dept}'")
     if status_v not in VALID_STATUS: status_v = "new"
 
     if errors:
@@ -170,8 +206,13 @@ class LeadListCreateView(APIView):
     def post(self, request):
         serializer = LeadCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        lead = serializer.save()
+
+        # ✅ Agar lead directly "converted" status ke saath bani toh client auto-create
+        if lead.status == "converted":
+            _auto_create_client(lead, request.user)
+
+        return Response(LeadDetailSerializer(lead).data, status=status.HTTP_201_CREATED)
 
 
 class LeadDetailView(APIView):
@@ -189,12 +230,19 @@ class LeadDetailView(APIView):
         return Response(LeadDetailSerializer(self._get_lead(pk, request.user)).data)
 
     def patch(self, request, pk):
-        lead = self._get_lead(pk, request.user)
+        lead       = self._get_lead(pk, request.user)
         old_status = lead.status
+        new_status = request.data.get("status")
 
-        # ✅ FIX: setattr loop hataya — sirf allowed fields update hongi
-        # tenant, id, created_by koi overwrite nahi kar sakta
-        safe_data = {k: v for k, v in request.data.items() if k in LEAD_PATCH_ALLOWED}
+        # ✅ Converted lead ka status wapas change nahi ho sakta
+        if old_status == "converted" and new_status and new_status != "converted":
+            if lead.converted_client.exists():
+                return Response(
+                    {"detail": "This lead has already been converted — status cannot be changed."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        safe_data  = {k: v for k, v in request.data.items() if k in LEAD_PATCH_ALLOWED}
         serializer = LeadCreateSerializer(
             lead, data=safe_data, partial=True, context={"request": request}
         )
@@ -202,12 +250,19 @@ class LeadDetailView(APIView):
         serializer.save()
         lead.refresh_from_db()
 
-        if "status" in safe_data and safe_data["status"] != old_status:
+        # ✅ Status "converted" ho gaya — client auto-create
+        if new_status == "converted" and old_status != "converted":
+            _auto_create_client(lead, request.user)
+
+        # Activity log
+        if new_status and new_status != old_status:
             LeadActivity.objects.create(
-                lead=lead, activity_type="status_change",
-                note=f"Status changed from {old_status} to {lead.status}",
-                created_by=request.user
+                lead          = lead,
+                activity_type = "status_change",
+                note          = f"Status changed from {old_status} to {lead.status}",
+                created_by    = request.user
             )
+
         return Response(LeadDetailSerializer(lead).data)
 
     def delete(self, request, pk):
@@ -227,9 +282,10 @@ class LeadAssignView(APIView):
         lead.assigned_to = employee
         lead.save()
         LeadActivity.objects.create(
-            lead=lead, activity_type="note",
-            note=f"Lead assigned to {employee.full_name}",
-            created_by=request.user
+            lead          = lead,
+            activity_type = "note",
+            note          = f"Lead assigned to {employee.full_name}",
+            created_by    = request.user
         )
         return Response(LeadDetailSerializer(lead).data)
 
@@ -238,19 +294,50 @@ class LeadActivityView(APIView):
     permission_classes = (IsAnyEmployee, FEATURE)
 
     def post(self, request, pk):
-        lead = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant)
+        lead     = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant)
         activity = LeadActivity.objects.create(
-            lead=lead,
-            activity_type=request.data.get("activity_type", "note"),
-            note=request.data.get("note", ""),
-            created_by=request.user
+            lead          = lead,
+            activity_type = request.data.get("activity_type", "note"),
+            note          = request.data.get("note", ""),
+            created_by    = request.user
         )
         return Response(LeadActivitySerializer(activity).data, status=status.HTTP_201_CREATED)
 
 
+class LeadConvertView(APIView):
+    """
+    POST /api/leads/<pk>/convert/
+    Can also be used for manual convert button.
+    """
+    permission_classes = (IsManagerOrAbove, FEATURE)
+
+    def post(self, request, pk):
+        lead = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant, is_archived=False)
+
+        existing = lead.converted_client.first()
+        if existing:
+            from clients.serializers import ClientDetailSerializer
+            return Response({
+                "detail": "Lead has already been converted.",
+                "client_id": existing.id,
+            }, status=status.HTTP_200_OK)
+
+        lead.status = "converted"
+        lead.save()
+
+        client = _auto_create_client(lead, request.user)
+        from clients.serializers import ClientDetailSerializer
+
+        return Response({
+            "detail": "Lead successfully converted.",
+            "client_id": client.id,
+            "client": ClientDetailSerializer(client).data,
+        }, status=status.HTTP_201_CREATED)
+
+
 class LeadBulkUploadView(APIView):
     permission_classes = (IsManagerOrAbove, FEATURE)
-    parser_classes = (MultiPartParser,)
+    parser_classes     = (MultiPartParser,)
 
     def post(self, request):
         file = request.FILES.get("file")
@@ -293,7 +380,7 @@ class LeadBulkUploadView(APIView):
             decoded = file.read().decode("utf-8-sig")
         except UnicodeDecodeError:
             return [], "File encoding error. Save as UTF-8 CSV."
-        reader = csv.DictReader(io.StringIO(decoded))
+        reader  = csv.DictReader(io.StringIO(decoded))
         headers = reader.fieldnames or []
         missing = [f for f in ["full_name", "source", "department"] if f not in headers]
         if missing:
@@ -303,11 +390,11 @@ class LeadBulkUploadView(APIView):
     def _parse_excel(self, file):
         try:
             import openpyxl
-            wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
-            ws = wb.active
+            wb        = openpyxl.load_workbook(file, read_only=True, data_only=True)
+            ws        = wb.active
             rows_iter = iter(ws.rows)
-            headers = [str(cell.value or "").strip() for cell in next(rows_iter)]
-            missing = [f for f in ["full_name", "source", "department"] if f not in headers]
+            headers   = [str(cell.value or "").strip() for cell in next(rows_iter)]
+            missing   = [f for f in ["full_name", "source", "department"] if f not in headers]
             if missing:
                 return [], f"Missing columns: {', '.join(missing)}"
             rows = []
@@ -316,7 +403,7 @@ class LeadBulkUploadView(APIView):
                 rows.append(row_dict)
             return rows, None
         except ImportError:
-            return [], "openpyxl not installed. Run: pip install openpyxl"
+            return [], "openpyxl not installed."
         except Exception as e:
             return [], f"Excel parse error: {str(e)}"
 
@@ -345,16 +432,16 @@ class LeadTemplateDownloadView(APIView):
         except ImportError:
             return Response({"detail": "openpyxl not installed."}, status=500)
 
-        wb = openpyxl.Workbook()
-        ws = wb.active
+        wb    = openpyxl.Workbook()
+        ws    = wb.active
         ws.title = "Leads Template"
-        header_fill = PatternFill("solid", fgColor="4F6EF7")
-        header_font = Font(bold=True, color="FFFFFF")
+        hfill = PatternFill("solid", fgColor="4F6EF7")
+        hfont = Font(bold=True, color="FFFFFF")
 
         for col_idx, col_name in enumerate(COLUMNS, start=1):
             cell = ws.cell(row=1, column=col_idx, value=col_name)
-            cell.fill = header_fill
-            cell.font = header_font
+            cell.fill = hfill
+            cell.font = hfont
             cell.alignment = Alignment(horizontal="center")
             ws.column_dimensions[cell.column_letter].width = max(len(col_name) + 4, 15)
 
@@ -382,7 +469,6 @@ class LeadExportView(APIView):
     def get(self, request):
         fmt = request.query_params.get("format", "csv").lower()
         qs  = get_filtered_qs(request)
-
         if fmt == "excel":
             return self._export_excel(qs)
         return self._export_csv(qs)
@@ -405,16 +491,15 @@ class LeadExportView(APIView):
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Leads Export"
+        ws.title       = "Leads Export"
         ws.freeze_panes = "A2"
-
-        header_fill = PatternFill("solid", fgColor="4F6EF7")
-        header_font = Font(bold=True, color="FFFFFF")
+        hfill = PatternFill("solid", fgColor="4F6EF7")
+        hfont = Font(bold=True, color="FFFFFF")
 
         for col_idx, header in enumerate(EXPORT_HEADERS, start=1):
             cell = ws.cell(row=1, column=col_idx, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
+            cell.fill      = hfill
+            cell.font      = hfont
             cell.alignment = Alignment(horizontal="center")
             ws.column_dimensions[cell.column_letter].width = max(len(header) + 4, 14)
 
@@ -428,11 +513,11 @@ class LeadExportView(APIView):
         }
 
         for row_idx, lead in enumerate(qs, start=2):
-            row_data = lead_to_row(lead)
+            row_data  = lead_to_row(lead)
             row_color = status_colors.get(lead.status, "FFFFFF")
             row_fill  = PatternFill("solid", fgColor=row_color)
             for col_idx, value in enumerate(row_data, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell      = ws.cell(row=row_idx, column=col_idx, value=value)
                 cell.fill = row_fill
 
         buf = io.BytesIO()
