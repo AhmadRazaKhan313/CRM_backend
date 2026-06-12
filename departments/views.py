@@ -5,9 +5,13 @@ from django.shortcuts import get_object_or_404
 
 from .models import Department
 from .serializers import DepartmentSerializer
-from core.permissions import IsCEOOrAbove, IsDeptHeadOrAbove, FeatureRequired
+from core.permissions import IsDeptHeadOrAbove, FeatureRequired
 
 FEATURE = FeatureRequired("departments_module")
+
+
+def can_manage(user):
+    return user.is_super_admin or user.role in ("ceo", "coo")
 
 
 class DepartmentListCreateView(APIView):
@@ -21,8 +25,11 @@ class DepartmentListCreateView(APIView):
         return Response(DepartmentSerializer(qs, many=True).data)
 
     def post(self, request):
-        if request.user.role not in ("ceo", "coo"):
-            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
+        if not can_manage(request.user):
+            return Response(
+                {"detail": "Only CEO/COO can create departments."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         serializer = DepartmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save(tenant=request.user.tenant)
@@ -37,10 +44,28 @@ class DepartmentDetailView(APIView):
         return Response(DepartmentSerializer(dept).data)
 
     def patch(self, request, pk):
-        if request.user.role not in ("ceo", "coo"):
-            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
+        if not can_manage(request.user):
+            return Response(
+                {"detail": "Only CEO/COO can edit departments."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         dept = get_object_or_404(Department, pk=pk, tenant=request.user.tenant)
         serializer = DepartmentSerializer(dept, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    def delete(self, request, pk):
+        if not can_manage(request.user):
+            return Response(
+                {"detail": "Only CEO/COO can deactivate departments."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        dept = get_object_or_404(Department, pk=pk, tenant=request.user.tenant)
+        dept.is_active = False
+        dept.head      = None
+        dept.save()
+        return Response(
+            {"detail": f"Department '{dept.name}' has been deactivated."},
+            status=status.HTTP_200_OK
+        )
