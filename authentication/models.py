@@ -1,6 +1,11 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 
+class DEPARTMENTS(models.TextChoices):
+    SALES = "sales", "Sales"
+    TECH = "tech", "Tech"
+    SEO = "seo", "SEO"
+
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra):
@@ -30,7 +35,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         SALES_EMPLOYEE = "sales_employee", "Sales Employee"
 
     class DEPARTMENTS(models.TextChoices):
-        ACADEMIC = "academic", "Academic"
+        SALES = "sales", "Sales"
         TECH = "tech", "Tech"
         SEO = "seo", "SEO"
 
@@ -76,7 +81,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def dept_code(self):
-        codes = {"academic": "ACD", "tech": "TEC", "seo": "SEO"}
+        codes = {"sales": "SALE", "tech": "TEC", "seo": "SEO"}
         return codes.get(self.department, "GEN")
 
     def save(self, *args, **kwargs):

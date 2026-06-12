@@ -22,7 +22,7 @@ class LoginView(APIView):
     permission_classes = (AllowAny,)
 
     def post(self, request):
-        email = request.data.get("email", "").lower().strip()
+        email    = request.data.get("email", "").lower().strip()
         password = request.data.get("password", "")
 
         try:
@@ -71,3 +71,49 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        user         = request.user
+        old_password = request.data.get("old_password", "")
+        new_password = request.data.get("new_password", "")
+
+        if not old_password or not new_password:
+            return Response(
+                {"detail": "Both old_password and new_password are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not user.check_password(old_password):
+            return Response(
+                {"detail": "Current password is incorrect."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "New password must be at least 8 characters."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if old_password == new_password:
+            return Response(
+                {"detail": "New password must be different from the current password."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.set_password(new_password)
+        user.save()
+
+        try:
+            RefreshToken(request.data.get("refresh", "")).blacklist()
+        except Exception:
+            pass
+
+        return Response(
+            {"detail": "Password changed successfully. Please log in again."},
+            status=status.HTTP_200_OK
+        )
