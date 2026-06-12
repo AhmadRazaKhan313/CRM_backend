@@ -4,22 +4,22 @@ from tenants.mixins import TenantModel
 
 class Task(TenantModel):
     class Priority(models.TextChoices):
-        LOW = "low", "Low"
+        LOW    = "low",    "Low"
         MEDIUM = "medium", "Medium"
-        HIGH = "high", "High"
+        HIGH   = "high",   "High"
         URGENT = "urgent", "Urgent"
 
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
+        PENDING     = "pending",     "Pending"
         IN_PROGRESS = "in_progress", "In Progress"
-        COMPLETED = "completed", "Completed"
-        DELAYED = "delayed", "Delayed"
+        COMPLETED   = "completed",   "Completed"
+        DELAYED     = "delayed",     "Delayed"
 
-    title = models.CharField(max_length=200)
+    title       = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
-    status = models.CharField(max_length=15, choices=Status.choices, default=Status.PENDING)
-    department = models.CharField(max_length=20, blank=True)
+    priority    = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
+    status      = models.CharField(max_length=15, choices=Status.choices, default=Status.PENDING)
+    department  = models.CharField(max_length=20, blank=True)
 
     assigned_to = models.ForeignKey(
         "authentication.User",
@@ -34,11 +34,14 @@ class Task(TenantModel):
         related_name="created_tasks"
     )
 
-    due_date = models.DateField(null=True, blank=True)
+    due_date     = models.DateField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
-    notes = models.TextField(blank=True)
+    notes       = models.TextField(blank=True)
     attachments = models.FileField(upload_to="tasks/", blank=True, null=True)
+
+    # ✅ Soft delete — hard delete ki jagah
+    is_archived = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -52,8 +55,8 @@ class Task(TenantModel):
 
 
 class TaskComment(models.Model):
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
-    comment = models.TextField()
+    task       = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
+    comment    = models.TextField()
     created_by = models.ForeignKey(
         "authentication.User",
         on_delete=models.SET_NULL,
@@ -62,5 +65,5 @@ class TaskComment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "task_comments"
-        ordering = ["created_at"]
+        db_table  = "task_comments"
+        ordering  = ["created_at"]

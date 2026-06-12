@@ -17,11 +17,45 @@ class LoginSerializer(serializers.Serializer):
         return data
 
 
+class TenantMiniSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    slug = serializers.CharField()
+    plan = serializers.CharField()
+    status = serializers.CharField()
+    features = serializers.SerializerMethodField()
+
+    def get_features(self, tenant):
+        try:
+            f = tenant.features
+            return {
+                "hrms": f.hrms,
+                "analytics": f.analytics,
+                "ai_assistant": f.ai_assistant,
+                "multi_department": f.multi_department,
+                "custom_branding": f.custom_branding,
+                "api_access": f.api_access,
+                "leads_module": f.leads_module,
+                "clients_module": f.clients_module,
+                "tasks_module": f.tasks_module,
+                "reports_module": f.reports_module,
+                "departments_module": f.departments_module,
+            }
+        except Exception:
+            return {}
+
+
 class UserSerializer(serializers.ModelSerializer):
+    tenant = TenantMiniSerializer(read_only=True)
+
     class Meta:
         model = User
-        fields = ("id", "email", "full_name", "role", "department", "employee_id", "avatar", "phone")
-        read_only_fields = ("id", "employee_id")
+        fields = (
+            "id", "email", "full_name", "role", "department",
+            "employee_id", "avatar", "phone",
+            "is_super_admin", "tenant",
+        )
+        read_only_fields = ("id", "employee_id", "is_super_admin", "tenant")
 
 
 class RegisterSerializer(serializers.ModelSerializer):
