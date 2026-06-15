@@ -412,7 +412,7 @@ class LeadTemplateDownloadView(APIView):
     permission_classes = (IsManagerOrAbove, FEATURE)
 
     def get(self, request):
-        fmt = request.query_params.get("format", "csv").lower()
+        fmt = request.query_params.get("fmt", "csv").lower()
         if fmt == "excel":
             return self._excel_template()
         return self._csv_template()
@@ -467,7 +467,7 @@ class LeadExportView(APIView):
     permission_classes = (IsManagerOrAbove, FEATURE)
 
     def get(self, request):
-        fmt = request.query_params.get("format", "csv").lower()
+        fmt = request.query_params.get("fmt", "csv").lower()
         qs  = get_filtered_qs(request)
         if fmt == "excel":
             return self._export_excel(qs)

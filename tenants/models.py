@@ -45,6 +45,8 @@ class TenantFeature(models.Model):
     tasks_module    = models.BooleanField(default=True)
     reports_module  = models.BooleanField(default=True)
     departments_module = models.BooleanField(default=True)
+    finance_module     = models.BooleanField(default=True)
+    delivery_module    = models.BooleanField(default=False)
 
     # ── Add-on Modules ────────────────────────────────────────
     analytics       = models.BooleanField(default=True)

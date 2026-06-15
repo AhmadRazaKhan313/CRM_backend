@@ -30,6 +30,16 @@ class DepartmentListCreateView(APIView):
                 {"detail": "Only CEO/COO can create departments."},
                 status=status.HTTP_403_FORBIDDEN
             )
+        # Prevent duplicate active department of same type
+        if Department.objects.filter(
+            tenant=request.user.tenant,
+            type=request.data.get("type"),
+            is_active=True
+        ).exists():
+            return Response(
+                {"detail": f"An active {request.data.get('type')} department already exists."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         serializer = DepartmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save(tenant=request.user.tenant)
