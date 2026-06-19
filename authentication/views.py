@@ -6,15 +6,15 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
 from .models import User
-from .serializers import UserSerializer, RegisterSerializer
+from .serializers import UserSerializer
 
 
 def _token_response(user):
     refresh = RefreshToken.for_user(user)
     return {
-        "access": str(refresh.access_token),
+        "access":  str(refresh.access_token),
         "refresh": str(refresh),
-        "user": UserSerializer(user).data,
+        "user":    UserSerializer(user).data,
     }
 
 
@@ -39,16 +39,6 @@ class LoginView(APIView):
         return Response(_token_response(user), status=status.HTTP_200_OK)
 
 
-class RegisterView(APIView):
-    permission_classes = (AllowAny,)
-
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response(_token_response(user), status=status.HTTP_201_CREATED)
-
-
 class LogoutView(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -67,7 +57,10 @@ class MeView(APIView):
         return Response(UserSerializer(request.user).data)
 
     def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        # User sirf apna naam, phone, avatar edit kar sakta hai
+        allowed = {"full_name", "phone", "avatar"}
+        data    = {k: v for k, v in request.data.items() if k in allowed}
+        serializer = UserSerializer(request.user, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -86,19 +79,16 @@ class ChangePasswordView(APIView):
                 {"detail": "Both old_password and new_password are required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         if not user.check_password(old_password):
             return Response(
                 {"detail": "Current password is incorrect."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         if len(new_password) < 8:
             return Response(
                 {"detail": "New password must be at least 8 characters."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         if old_password == new_password:
             return Response(
                 {"detail": "New password must be different from the current password."},
@@ -107,12 +97,6 @@ class ChangePasswordView(APIView):
 
         user.set_password(new_password)
         user.save()
-
-        try:
-            RefreshToken(request.data.get("refresh", "")).blacklist()
-        except Exception:
-            pass
-
         return Response(
             {"detail": "Password changed successfully. Please log in again."},
             status=status.HTTP_200_OK

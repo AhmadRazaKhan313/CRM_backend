@@ -10,7 +10,6 @@ from .views_employees import (
 
 urlpatterns = [
     path("login/",           views.LoginView.as_view()),
-    path("register/",        views.RegisterView.as_view()),
     path("logout/",          views.LogoutView.as_view()),
     path("me/",              views.MeView.as_view()),
     path("change-password/", views.ChangePasswordView.as_view()),
@@ -19,5 +18,5 @@ urlpatterns = [
     path("employees/",                         EmployeeListCreateView.as_view()),
     path("employees/<int:pk>/",                EmployeeDetailView.as_view()),
     path("employees/<int:pk>/roles/",          EmployeeRoleAssignView.as_view()),
-    path("employees/<int:pk>/reset-password/", AdminPasswordResetView.as_view()), 
+    path("employees/<int:pk>/reset-password/", AdminPasswordResetView.as_view()),
 ]
