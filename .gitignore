@@ -17,11 +17,11 @@ staticfiles/
 static_root/
 
 # Environment — NEVER commit secrets
-.env
-.env.*
 *.env
 
 # OS
 .DS_Store
 Thumbs.db
 logs/.gitkeep
+config.bat
+node_modules
