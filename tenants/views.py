@@ -1,76 +1,67 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db.models import Count
 
 from .models import Tenant, TenantFeature
 from .serializers import TenantSerializer, TenantRegisterSerializer, TenantFeatureSerializer
-from authentication.serializers import RegisterSerializer, UserSerializer
-from rest_framework_simplejwt.tokens import RefreshToken
 from core.permissions import IsSuperAdmin
 
 
-# ─────────────────────────────────────────────
-# Public — Tenant Register
-# ─────────────────────────────────────────────
+def _is_primary_super_admin(user):
+    """
+    Sirf Organization 1 (is_primary) ka super admin nayi organizations bana sakta hai.
+    """
+    return (
+        user.is_super_admin
+        and user.tenant_id is not None
+        and getattr(user.tenant, "is_primary", False)
+    )
 
-class TenantRegisterView(APIView):
-    permission_classes = (AllowAny,)
+
+class OrganizationCreateView(APIView):
+    """
+    Nayi organization banao. Sirf primary org (Org 1) ka super admin kar sakta hai.
+    Yeh sirf organization banata hai — uske users baad mein add hote hain.
+    """
+    permission_classes = (IsAuthenticated,)
 
     def post(self, request):
-        t_serializer = TenantRegisterSerializer(data=request.data)
-        t_serializer.is_valid(raise_exception=True)
-        tenant = t_serializer.save()
+        if not _is_primary_super_admin(request.user):
+            return Response(
+                {"detail": "Only the primary Super Admin can create organizations."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = TenantRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tenant = serializer.save()
+        TenantFeature.objects.get_or_create(tenant=tenant)
+        return Response(TenantSerializer(tenant).data, status=status.HTTP_201_CREATED)
 
-        user_data = {
-            "email": request.data.get("email"),
-            "full_name": request.data.get("admin_name", "Admin"),
-            "password": request.data.get("password"),
-            "role": "ceo",
-        }
-        u_serializer = RegisterSerializer(data=user_data)
-        u_serializer.is_valid(raise_exception=True)
-        user = u_serializer.save()
-        user.tenant = tenant
-        user.save()
-
-        refresh = RefreshToken.for_user(user)
-        return Response({
-            "tenant": TenantSerializer(tenant).data,
-            "user": UserSerializer(user).data,
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-        }, status=status.HTTP_201_CREATED)
-
-
-# ─────────────────────────────────────────────
-# Authenticated — Current Tenant
-# ─────────────────────────────────────────────
 
 class TenantDetailView(APIView):
+    """Current logged-in user ki apni organization."""
     permission_classes = (IsAuthenticated,)
 
     def get(self, request):
         tenant = request.user.tenant
         if not tenant:
-            return Response({"detail": "No tenant."}, status=404)
+            return Response({"detail": "No organization."}, status=404)
         return Response(TenantSerializer(tenant).data)
 
     def patch(self, request):
         tenant = request.user.tenant
         if not tenant:
-            return Response({"detail": "No tenant."}, status=404)
+            return Response({"detail": "No organization."}, status=404)
+        if not request.user.is_super_admin:
+            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
         serializer = TenantSerializer(tenant, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
 
-
-# ─────────────────────────────────────────────
-# Super Admin — All Tenants Management
-# ─────────────────────────────────────────────
 
 class SuperAdminStatsView(APIView):
     permission_classes = (IsSuperAdmin,)
@@ -118,11 +109,7 @@ class SuperAdminTenantDetailView(APIView):
 
 
 class SuperAdminFeatureFlagView(APIView):
-    """
-    Super Admin se specific tenant ke feature flags update karo.
-    PATCH /tenant/admin/tenants/<id>/features/
-    Body: { "analytics": true, "hrms": false, ... }
-    """
+    """Super Admin se kisi organization ke feature flags update karo."""
     permission_classes = (IsSuperAdmin,)
 
     def get(self, request, tenant_id):

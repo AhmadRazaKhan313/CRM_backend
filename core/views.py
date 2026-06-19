@@ -2,18 +2,16 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
 
 from .models import Permission, Role, UserRole
-from .serializers import (
-    PermissionSerializer, RoleSerializer,
-    AssignRoleSerializer, UserRoleSerializer
-)
-from .permissions import IsCEOOrAbove, IsManagerOrAbove, IsDeptHeadOrAbove
+from .serializers import PermissionSerializer, RoleSerializer, UserRoleSerializer
+from .permissions import IsAuthenticatedInTenant, HasPermission
 
 
 class PermissionListView(APIView):
-    permission_classes = (IsDeptHeadOrAbove,)
+    """Saari available permissions — role banate waqt inme se choose karte hain."""
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), HasPermission("roles.view")()]
 
     def get(self, request):
         perms  = Permission.objects.all()
@@ -24,13 +22,15 @@ class PermissionListView(APIView):
 
 
 class RoleListCreateView(APIView):
-    permission_classes = (IsCEOOrAbove,)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), HasPermission("roles.create")()]
+        return [IsAuthenticatedInTenant(), HasPermission("roles.view")()]
 
     def get(self, request):
-        # System roles + tenant custom roles dono show karo
         roles = Role.objects.filter(
-            Q(tenant=request.user.tenant) | Q(is_system=True)
-        ).prefetch_related("permissions").order_by("-is_system", "name")
+            tenant=request.user.tenant
+        ).prefetch_related("permissions").order_by("name")
         return Response(RoleSerializer(roles, many=True).data)
 
     def post(self, request):
@@ -41,20 +41,18 @@ class RoleListCreateView(APIView):
 
 
 class RoleDetailView(APIView):
-    permission_classes = (IsCEOOrAbove,)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), HasPermission("roles.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), HasPermission("roles.edit")()]
+        return [IsAuthenticatedInTenant(), HasPermission("roles.view")()]
 
     def _get_role(self, pk, tenant):
-        # System roles edit/delete nahi ho sakti
-        return get_object_or_404(Role, pk=pk, tenant=tenant, is_system=False)
+        return get_object_or_404(Role, pk=pk, tenant=tenant)
 
     def get(self, request, pk):
-        # System roles view kar sakte hain
-        role = get_object_or_404(
-            Role.objects.filter(
-                Q(tenant=request.user.tenant) | Q(is_system=True)
-            ), pk=pk
-        )
-        return Response(RoleSerializer(role).data)
+        return Response(RoleSerializer(self._get_role(pk, request.user.tenant)).data)
 
     def patch(self, request, pk):
         role       = self._get_role(pk, request.user.tenant)
@@ -67,51 +65,20 @@ class RoleDetailView(APIView):
         role = self._get_role(pk, request.user.tenant)
         if role.assigned_users.exists():
             return Response(
-                {"detail": "Cannot delete role with assigned users."},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Cannot delete a role that is assigned to users."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         role.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class AssignRoleView(APIView):
-    permission_classes = (IsDeptHeadOrAbove,)
-
-    def post(self, request):
-        serializer = AssignRoleSerializer(
-            data=request.data, context={"request": request}
-        )
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data["user"]
-        role = serializer.validated_data["role"]
-        user_role, created = UserRole.objects.get_or_create(
-            user=user, role=role,
-            defaults={"assigned_by": request.user}
-        )
-        if not created:
-            return Response(
-                {"detail": "Role already assigned to this user."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return Response(UserRoleSerializer(user_role).data, status=status.HTTP_201_CREATED)
-
-    def delete(self, request):
-        user_id = request.data.get("user_id")
-        role_id = request.data.get("role_id")
-        UserRole.objects.filter(
-            user_id=user_id,
-            role_id=role_id,
-            user__tenant=request.user.tenant
-        ).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
 class UserRolesView(APIView):
-    permission_classes = (IsManagerOrAbove,)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), HasPermission("employees.view")()]
 
     def get(self, request, user_id):
         roles = UserRole.objects.filter(
             user_id=user_id,
-            user__tenant=request.user.tenant
+            user__tenant=request.user.tenant,
         ).select_related("role", "user")
         return Response(UserRoleSerializer(roles, many=True).data)

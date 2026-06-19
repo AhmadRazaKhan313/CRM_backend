@@ -16,7 +16,7 @@ class TenantSerializer(serializers.ModelSerializer):
         fields = (
             "id", "name", "slug", "email", "phone",
             "logo", "plan", "status", "trial_ends_at",
-            "created_at", "features"
+            "created_at", "is_primary", "features"
         )
         read_only_fields = ("id", "slug", "created_at")
 
