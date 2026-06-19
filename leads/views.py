@@ -10,15 +10,16 @@ from django.http import HttpResponse
 from .models import Lead, LeadActivity
 from .serializers import (
     LeadListSerializer, LeadDetailSerializer,
-    LeadCreateSerializer, LeadActivitySerializer
+    LeadCreateSerializer, LeadActivitySerializer,
 )
-from core.permissions import IsManagerOrAbove, IsAnyEmployee, FeatureRequired
+from core.permissions import (
+    IsAuthenticatedInTenant, HasPermission, FeatureRequired,
+)
 from notifications.utils import notify
 
 FEATURE = FeatureRequired("leads_module")
 
 VALID_SOURCES = ["instagram", "facebook", "linkedin", "whatsapp", "website", "email", "other"]
-VALID_DEPTS   = ["sales", "tech", "seo"]
 VALID_STATUS  = ["new", "contacted", "interested", "follow_up", "converted", "rejected"]
 
 COLUMNS = [
@@ -63,15 +64,10 @@ LEAD_PATCH_ALLOWED = {
 }
 
 
-# ✅ Helper — Lead se Client auto-create karo
 def _auto_create_client(lead, user):
-    """
-    When lead status becomes 'converted' — client is created automatically.
-    Skips if client already exists.
-    """
+    """Lead 'converted' hone par client automatically banta hai."""
     from clients.models import Client
 
-    # Skip if client already exists
     if lead.converted_client.exists():
         return lead.converted_client.first()
 
@@ -89,14 +85,12 @@ def _auto_create_client(lead, user):
         notes          = lead.notes,
         status         = "active",
     )
-
     LeadActivity.objects.create(
         lead          = lead,
         activity_type = "status_change",
         note          = f"Lead converted — client created automatically (ID: {client.id})",
         created_by    = user,
     )
-
     return client
 
 
@@ -104,13 +98,22 @@ def parse_row(row, index, tenant, user):
     errors = []
     full_name = str(row.get("full_name", "") or "").strip()
     source    = str(row.get("source",    "") or "").strip().lower()
-    dept      = str(row.get("department","") or "").strip().lower()
+    dept_name = str(row.get("department","") or "").strip()
     status_v  = str(row.get("status",   "new") or "new").strip().lower() or "new"
 
-    if not full_name:               errors.append("full_name is empty")
-    if source not in VALID_SOURCES: errors.append(f"invalid source '{source}'")
-    if dept not in VALID_DEPTS:     errors.append(f"invalid department '{dept}'")
+    if not full_name:                errors.append("full_name is empty")
+    if source not in VALID_SOURCES:  errors.append(f"invalid source '{source}'")
     if status_v not in VALID_STATUS: status_v = "new"
+
+    # Department naam se dhoondo (optional — agar diya hai toh match hona chahiye)
+    department = None
+    if dept_name:
+        from departments.models import Department
+        department = Department.objects.filter(
+            tenant=tenant, name__iexact=dept_name, is_active=True
+        ).first()
+        if not department:
+            errors.append(f"department '{dept_name}' not found")
 
     if errors:
         return None, errors
@@ -125,7 +128,7 @@ def parse_row(row, index, tenant, user):
         country           = str(row.get("country",          "") or "").strip(),
         company           = str(row.get("company",          "") or "").strip(),
         source            = source,
-        department        = dept,
+        department        = department,
         status            = status_v,
         platform_link     = str(row.get("platform_link",    "") or "").strip(),
         service_interest  = str(row.get("service_interest", "") or "").strip(),
@@ -149,7 +152,7 @@ def parse_row(row, index, tenant, user):
 def lead_to_row(l):
     return [
         l.serial_no, l.id, l.full_name, l.email, l.phone, l.contact_no,
-        l.country, l.company, l.source, l.department, l.status,
+        l.country, l.company, l.source, l.department.name if l.department else "", l.status,
         l.platform_link, l.service_interest, l.notes, l.questionnaire,
         l.instagram_url, l.facebook_url, l.linkedin_url,
         l.lead_insta_id, l.lead_fb_id, l.lead_linkedin_id, l.lead_whatsapp_no,
@@ -161,10 +164,16 @@ def lead_to_row(l):
     ]
 
 
-def get_filtered_qs(request):
+def base_queryset(request):
+    """
+    Organization-scoped leads. Agar user ke paas leads.view_all permission
+    nahi hai, toh sirf apni assigned leads dikhti hain.
+    """
+    from core.permissions import user_has_permission
+
     qs = Lead.objects.filter(
         tenant=request.user.tenant,
-        is_archived=False
+        is_archived=False,
     ).select_related("assigned_to", "created_by")
 
     if request.query_params.get("status"):
@@ -173,68 +182,62 @@ def get_filtered_qs(request):
         qs = qs.filter(department=request.query_params["department"])
     if request.query_params.get("source"):
         qs = qs.filter(source=request.query_params["source"])
-    if request.user.role in ("dept_head", "lead_manager", "sales_manager"):
-        qs = qs.filter(department=request.user.department)
-    return qs
+    if request.query_params.get("search"):
+        s = request.query_params["search"]
+        qs = qs.filter(full_name__icontains=s) | qs.filter(country__icontains=s)
+
+    # Super admin aur view_all permission wale sab dekhte hain.
+    # Baaki sirf apni assigned leads.
+    if request.user.is_super_admin or user_has_permission(request.user, "leads.view_all"):
+        return qs
+    return qs.filter(assigned_to=request.user)
 
 
 class LeadListCreateView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.view")()]
 
     def get(self, request):
-        qs = Lead.objects.filter(
-            tenant=request.user.tenant,
-            is_archived=False
-        ).select_related("assigned_to", "created_by")
-
-        if request.query_params.get("status"):     qs = qs.filter(status=request.query_params["status"])
-        if request.query_params.get("department"): qs = qs.filter(department=request.query_params["department"])
-        if request.query_params.get("source"):     qs = qs.filter(source=request.query_params["source"])
-        if request.query_params.get("search"):
-            s = request.query_params["search"]
-            qs = qs.filter(full_name__icontains=s) | qs.filter(country__icontains=s)
-
-        if request.user.is_super_admin or request.user.role in ("ceo", "coo", "sales_director"):
-            return Response(LeadListSerializer(qs, many=True).data)
-        if request.user.role in ("dept_head", "lead_manager", "sales_manager"):
-            qs = qs.filter(department=request.user.department)
-        elif request.user.role in ("lead_employee", "sales_employee"):
-            qs = qs.filter(assigned_to=request.user)
-
+        qs = base_queryset(request)
         return Response(LeadListSerializer(qs, many=True).data)
 
     def post(self, request):
         serializer = LeadCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         lead = serializer.save()
-
-        # ✅ Agar lead directly "converted" status ke saath bani toh client auto-create
         if lead.status == "converted":
             _auto_create_client(lead, request.user)
-
         return Response(LeadDetailSerializer(lead).data, status=status.HTTP_201_CREATED)
 
 
 class LeadDetailView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.view")()]
 
-    def _get_lead(self, pk, user):
-        lead = get_object_or_404(Lead, pk=pk, tenant=user.tenant, is_archived=False)
-        if user.role in ("lead_employee", "sales_employee"):
-            if lead.assigned_to != user:
+    def _get_lead(self, pk, request):
+        from core.permissions import user_has_permission
+        lead = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant, is_archived=False)
+        # Agar view_all nahi hai toh sirf apni assigned lead access kar sakta
+        if not (request.user.is_super_admin or user_has_permission(request.user, "leads.view_all")):
+            if lead.assigned_to != request.user:
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied()
         return lead
 
     def get(self, request, pk):
-        return Response(LeadDetailSerializer(self._get_lead(pk, request.user)).data)
+        return Response(LeadDetailSerializer(self._get_lead(pk, request)).data)
 
     def patch(self, request, pk):
-        lead       = self._get_lead(pk, request.user)
+        lead       = self._get_lead(pk, request)
         old_status = lead.status
         new_status = request.data.get("status")
 
-        # ✅ Converted lead ka status wapas change nahi ho sakta
         if old_status == "converted" and new_status and new_status != "converted":
             if lead.converted_client.exists():
                 return Response(
@@ -243,18 +246,14 @@ class LeadDetailView(APIView):
                 )
 
         safe_data  = {k: v for k, v in request.data.items() if k in LEAD_PATCH_ALLOWED}
-        serializer = LeadCreateSerializer(
-            lead, data=safe_data, partial=True, context={"request": request}
-        )
+        serializer = LeadCreateSerializer(lead, data=safe_data, partial=True, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         lead.refresh_from_db()
 
-        # ✅ Status "converted" ho gaya — client auto-create
         if new_status == "converted" and old_status != "converted":
             _auto_create_client(lead, request.user)
 
-        # Activity log
         if new_status and new_status != old_status:
             LeadActivity.objects.create(
                 lead          = lead,
@@ -262,22 +261,22 @@ class LeadDetailView(APIView):
                 note          = f"Status changed from {old_status} to {lead.status}",
                 created_by    = request.user
             )
-
         return Response(LeadDetailSerializer(lead).data)
 
     def delete(self, request, pk):
-        lead = self._get_lead(pk, request.user)
+        lead = self._get_lead(pk, request)
         lead.is_archived = True
         lead.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LeadAssignView(APIView):
-    permission_classes = (IsManagerOrAbove,)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.assign")()]
 
     def post(self, request, pk):
-        lead = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant)
         from authentication.models import User
+        lead     = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant)
         employee = get_object_or_404(User, pk=request.data.get("user_id"), tenant=request.user.tenant)
         lead.assigned_to = employee
         lead.save()
@@ -287,11 +286,20 @@ class LeadAssignView(APIView):
             note          = f"Lead assigned to {employee.full_name}",
             created_by    = request.user
         )
+        notify(
+            tenant    = lead.tenant,
+            recipient = employee,
+            type      = "lead_assigned",
+            title     = "New Lead Assigned",
+            message   = f"You have been assigned lead: {lead.full_name}",
+            link      = f"/leads/{lead.id}",
+        )
         return Response(LeadDetailSerializer(lead).data)
 
 
 class LeadActivityView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.view")()]
 
     def post(self, request, pk):
         lead     = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant)
@@ -305,18 +313,14 @@ class LeadActivityView(APIView):
 
 
 class LeadConvertView(APIView):
-    """
-    POST /api/leads/<pk>/convert/
-    Can also be used for manual convert button.
-    """
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.edit")()]
 
     def post(self, request, pk):
         lead = get_object_or_404(Lead, pk=pk, tenant=request.user.tenant, is_archived=False)
 
         existing = lead.converted_client.first()
         if existing:
-            from clients.serializers import ClientDetailSerializer
             return Response({
                 "detail": "Lead has already been converted.",
                 "client_id": existing.id,
@@ -324,10 +328,8 @@ class LeadConvertView(APIView):
 
         lead.status = "converted"
         lead.save()
-
         client = _auto_create_client(lead, request.user)
         from clients.serializers import ClientDetailSerializer
-
         return Response({
             "detail": "Lead successfully converted.",
             "client_id": client.id,
@@ -336,8 +338,10 @@ class LeadConvertView(APIView):
 
 
 class LeadBulkUploadView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
-    parser_classes     = (MultiPartParser,)
+    parser_classes = (MultiPartParser,)
+
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.create")()]
 
     def post(self, request):
         file = request.FILES.get("file")
@@ -345,7 +349,6 @@ class LeadBulkUploadView(APIView):
             return Response({"detail": "File required."}, status=400)
 
         fname = file.name.lower()
-
         if fname.endswith(".csv"):
             rows, err = self._parse_csv(file)
         elif fname.endswith((".xlsx", ".xls")):
@@ -357,7 +360,6 @@ class LeadBulkUploadView(APIView):
             return Response({"detail": err}, status=400)
 
         created, errors = [], []
-
         for i, row in enumerate(rows, start=2):
             data, row_errors = parse_row(row, i, request.user.tenant, request.user)
             if row_errors:
@@ -409,10 +411,11 @@ class LeadBulkUploadView(APIView):
 
 
 class LeadTemplateDownloadView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.create")()]
 
     def get(self, request):
-        fmt = request.query_params.get("format", "csv").lower()
+        fmt = request.query_params.get("fmt", "csv").lower()
         if fmt == "excel":
             return self._excel_template()
         return self._csv_template()
@@ -432,8 +435,8 @@ class LeadTemplateDownloadView(APIView):
         except ImportError:
             return Response({"detail": "openpyxl not installed."}, status=500)
 
-        wb    = openpyxl.Workbook()
-        ws    = wb.active
+        wb = openpyxl.Workbook()
+        ws = wb.active
         ws.title = "Leads Template"
         hfill = PatternFill("solid", fgColor="4F6EF7")
         hfont = Font(bold=True, color="FFFFFF")
@@ -448,13 +451,12 @@ class LeadTemplateDownloadView(APIView):
         for col_idx, val in enumerate(EXAMPLE_ROW, start=1):
             ws.cell(row=2, column=col_idx, value=val)
 
-        ws.cell(row=3, column=1, value="↑ Delete example rows before uploading")
+        ws.cell(row=3, column=1, value="Delete example rows before uploading")
         ws.cell(row=3, column=1).font = Font(italic=True, color="999999")
 
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-
         response = HttpResponse(
             buf.read(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -464,11 +466,12 @@ class LeadTemplateDownloadView(APIView):
 
 
 class LeadExportView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("leads.export")()]
 
     def get(self, request):
-        fmt = request.query_params.get("format", "csv").lower()
-        qs  = get_filtered_qs(request)
+        fmt = request.query_params.get("fmt", "csv").lower()
+        qs  = base_queryset(request)
         if fmt == "excel":
             return self._export_excel(qs)
         return self._export_csv(qs)
@@ -491,7 +494,7 @@ class LeadExportView(APIView):
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title       = "Leads Export"
+        ws.title        = "Leads Export"
         ws.freeze_panes = "A2"
         hfill = PatternFill("solid", fgColor="4F6EF7")
         hfont = Font(bold=True, color="FFFFFF")
@@ -504,12 +507,8 @@ class LeadExportView(APIView):
             ws.column_dimensions[cell.column_letter].width = max(len(header) + 4, 14)
 
         status_colors = {
-            "new":        "DBEAFE",
-            "contacted":  "FEF9C3",
-            "interested": "DCFCE7",
-            "follow_up":  "FFEDD5",
-            "converted":  "EDE9FE",
-            "rejected":   "FEE2E2",
+            "new": "DBEAFE", "contacted": "FEF9C3", "interested": "DCFCE7",
+            "follow_up": "FFEDD5", "converted": "EDE9FE", "rejected": "FEE2E2",
         }
 
         for row_idx, lead in enumerate(qs, start=2):
@@ -523,7 +522,6 @@ class LeadExportView(APIView):
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-
         response = HttpResponse(
             buf.read(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

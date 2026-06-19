@@ -4,21 +4,20 @@ from .models import DailyReport
 
 class DailyReportListSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.full_name", read_only=True)
-    employee_role = serializers.CharField(source="employee.get_role_display", read_only=True)
+    department_name = serializers.CharField(source="department.name", read_only=True, default=None)
     reviewed_by_name = serializers.CharField(source="reviewed_by.full_name", read_only=True)
 
     class Meta:
         model = DailyReport
         fields = (
-            "id", "employee_name", "employee_role", "date",
-            "department", "status", "total_leads", "total_calls",
+            "id", "employee_name", "date",
+            "department", "department_name", "status", "total_leads", "total_calls",
             "total_conversions", "reviewed_by_name", "created_at"
         )
 
 
 class DailyReportDetailSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.full_name", read_only=True)
-    employee_role = serializers.CharField(source="employee.get_role_display", read_only=True)
     reviewed_by_name = serializers.CharField(source="reviewed_by.full_name", read_only=True)
 
     class Meta:
@@ -43,7 +42,6 @@ class DailyReportCreateSerializer(serializers.ModelSerializer):
         return DailyReport.objects.create(
             tenant=request.user.tenant,
             employee=request.user,
-            department=request.user.department or "",
             **validated_data
         )
 

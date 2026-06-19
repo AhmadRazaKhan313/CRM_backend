@@ -9,7 +9,9 @@ from .serializers import (
     TaskListSerializer, TaskDetailSerializer,
     TaskCreateSerializer, TaskCommentSerializer
 )
-from core.permissions import IsAnyEmployee, IsManagerOrAbove, FeatureRequired
+from core.permissions import (
+    IsAuthenticatedInTenant, HasPermission, FeatureRequired, user_has_permission,
+)
 from notifications.utils import notify
 
 FEATURE = FeatureRequired("tasks_module")
@@ -21,7 +23,10 @@ TASK_PATCH_ALLOWED = {
 
 
 class TaskListCreateView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("tasks.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("tasks.view")()]
 
     def get(self, request):
         qs = Task.objects.filter(
@@ -37,10 +42,8 @@ class TaskListCreateView(APIView):
         if priority_f: qs = qs.filter(priority=priority_f)
         if dept_f:     qs = qs.filter(department=dept_f)
 
-        if request.user.role in ("lead_employee", "sales_employee"):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "tasks.view_all")):
             qs = qs.filter(assigned_to=request.user)
-        elif request.user.role in ("lead_manager", "sales_manager", "dept_head"):
-            qs = qs.filter(department=request.user.department)
 
         return Response(TaskListSerializer(qs, many=True).data)
 
@@ -52,7 +55,12 @@ class TaskListCreateView(APIView):
 
 
 class TaskDetailView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("tasks.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("tasks.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("tasks.view")()]
 
     def _get_task(self, pk, user):
         return get_object_or_404(Task, pk=pk, tenant=user.tenant, is_archived=False)
@@ -74,10 +82,6 @@ class TaskDetailView(APIView):
         return Response(TaskDetailSerializer(task).data)
 
     def delete(self, request, pk):
-        user = request.user
-        can_delete = user.is_super_admin or user.role in ("ceo", "coo", "dept_head")
-        if not can_delete:
-            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
         task = self._get_task(pk, request.user)
         task.is_archived = True
         task.save()
@@ -85,7 +89,8 @@ class TaskDetailView(APIView):
 
 
 class TaskCommentView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("tasks.view")()]
 
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk, tenant=request.user.tenant, is_archived=False)

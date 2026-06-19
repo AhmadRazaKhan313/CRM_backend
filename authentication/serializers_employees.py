@@ -4,18 +4,17 @@ from core.models import Role, UserRole
 
 
 class EmployeeListSerializer(serializers.ModelSerializer):
-    role_display = serializers.CharField(source="get_role_display", read_only=True)
-    assigned_roles = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
 
     class Meta:
-        model = User
+        model  = User
         fields = (
-            "id", "full_name", "email", "phone", "role",
-            "role_display", "department", "employee_id",
-            "avatar", "is_active", "created_at", "assigned_roles"
+            "id", "full_name", "email", "phone",
+            "employee_id", "avatar", "is_active",
+            "created_at", "roles",
         )
 
-    def get_assigned_roles(self, obj):
+    def get_roles(self, obj):
         return list(
             obj.assigned_roles.select_related("role")
             .values_list("role__name", flat=True)
@@ -28,19 +27,28 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
         many=True,
         write_only=True,
         queryset=Role.objects.all(),
-        required=False
+        required=True,   # Role ab zaroori hai — koi user bina role ke nahi
     )
 
     class Meta:
-        model = User
-        fields = (
-            "full_name", "email", "phone", "password",
-            "role", "department", "avatar", "role_ids"
-        )
+        model  = User
+        fields = ("full_name", "email", "phone", "password", "avatar", "role_ids")
+
+    def validate_role_ids(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one role is required.")
+        tenant = self.context["tenant"]
+        # Saari roles isi organization ki honi chahiye
+        for role in value:
+            if role.tenant_id != tenant.id:
+                raise serializers.ValidationError(
+                    "Roles must belong to your organization."
+                )
+        return value
 
     def create(self, validated_data):
         role_ids = validated_data.pop("role_ids", [])
-        tenant = self.context["tenant"]
+        tenant   = self.context["tenant"]
         user = User.objects.create_user(**validated_data)
         user.tenant = tenant
         user.save()
@@ -48,15 +56,12 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
             UserRole.objects.create(
                 user=user,
                 role=role,
-                assigned_by=self.context["request"].user
+                assigned_by=self.context["request"].user,
             )
         return user
 
 
 class EmployeeUpdateSerializer(serializers.ModelSerializer):
     class Meta:
-        model = User
-        fields = (
-            "full_name", "phone", "role",
-            "department", "avatar", "is_active"
-        )
+        model  = User
+        fields = ("full_name", "phone", "avatar", "is_active")

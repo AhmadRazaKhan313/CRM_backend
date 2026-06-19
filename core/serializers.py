@@ -23,32 +23,12 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = (
             "id", "name", "description",
             "permissions", "permission_ids",
-            "user_count", "is_system", "created_at",
+            "user_count", "created_at",
         )
-        read_only_fields = ("id", "is_system", "created_at")
+        read_only_fields = ("id", "created_at")
 
     def get_user_count(self, obj):
-        if obj.is_system:
-            return "—"
         return obj.assigned_users.count()
-
-
-class AssignRoleSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField()
-    role_id = serializers.IntegerField()
-
-    def validate(self, data):
-        from authentication.models import User
-        request = self.context["request"]
-        try:
-            data["user"] = User.objects.get(pk=data["user_id"], tenant=request.user.tenant)
-        except User.DoesNotExist:
-            raise serializers.ValidationError({"user_id": "User not found."})
-        try:
-            data["role"] = Role.objects.get(pk=data["role_id"], tenant=request.user.tenant)
-        except Role.DoesNotExist:
-            raise serializers.ValidationError({"role_id": "Role not found."})
-        return data
 
 
 class UserRoleSerializer(serializers.ModelSerializer):

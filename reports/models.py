@@ -21,7 +21,7 @@ class DailyReport(TenantModel):
     )
 
     date = models.DateField()
-    department = models.CharField(max_length=20)
+    department = models.ForeignKey("departments.Department", on_delete=models.SET_NULL, null=True, blank=True, related_name="reports")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUBMITTED)
 
     # Work Summary
