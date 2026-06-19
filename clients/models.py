@@ -27,7 +27,7 @@ class Client(TenantModel):
     country = models.CharField(max_length=60, blank=True)
     company = models.CharField(max_length=120, blank=True)
 
-    department = models.CharField(max_length=20, choices=Department.choices)
+    department = models.ForeignKey("departments.Department", on_delete=models.SET_NULL, null=True, blank=True, related_name="clients")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     tag = models.CharField(max_length=20, choices=Tag.choices, blank=True)
 

@@ -14,6 +14,7 @@ class LeadListSerializer(serializers.ModelSerializer):
     assigned_to_name       = serializers.CharField(source="assigned_to.full_name",  read_only=True)
     assigned_to_employee_id = serializers.CharField(source="assigned_to.employee_id", read_only=True)
     created_by_name        = serializers.CharField(source="created_by.full_name",   read_only=True)
+    department_name        = serializers.CharField(source="department.name", read_only=True, default=None)
     staff_name             = serializers.ReadOnlyField()
     staff_id               = serializers.ReadOnlyField()
 
@@ -28,7 +29,7 @@ class LeadListSerializer(serializers.ModelSerializer):
             "assigned_to", "assigned_to_name", "assigned_to_employee_id",
             "staff_name", "staff_id",
             "staff_insta_id", "staff_fb_id", "staff_linkedin_id", "staff_whatsapp_id",
-            "department", "status", "service_interest",
+            "department", "department_name", "status", "service_interest",
             "created_by_name", "is_archived", "created_at", "updated_at",
         )
 
@@ -38,6 +39,7 @@ class LeadDetailSerializer(serializers.ModelSerializer):
     assigned_to_name       = serializers.CharField(source="assigned_to.full_name",  read_only=True)
     assigned_to_employee_id = serializers.CharField(source="assigned_to.employee_id", read_only=True)
     created_by_name        = serializers.CharField(source="created_by.full_name",   read_only=True)
+    department_name        = serializers.CharField(source="department.name", read_only=True, default=None)
     staff_name             = serializers.ReadOnlyField()
     staff_id               = serializers.ReadOnlyField()
 
@@ -52,7 +54,7 @@ class LeadDetailSerializer(serializers.ModelSerializer):
             "assigned_to", "assigned_to_name", "assigned_to_employee_id",
             "staff_name", "staff_id",
             "staff_insta_id", "staff_fb_id", "staff_linkedin_id", "staff_whatsapp_id",
-            "department", "status", "service_interest",
+            "department", "department_name", "status", "service_interest",
             "notes", "questionnaire",
             "created_by", "created_by_name",
             "is_archived", "created_at", "updated_at",
@@ -76,8 +78,6 @@ class LeadCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context["request"]
-        if not validated_data.get("department") and request.user.department:
-            validated_data["department"] = request.user.department
         return Lead.objects.create(
             tenant     = request.user.tenant,
             created_by = request.user,

@@ -13,17 +13,19 @@ class TaskCommentSerializer(serializers.ModelSerializer):
 class TaskListSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True)
     assigned_by_name = serializers.CharField(source="assigned_by.full_name", read_only=True)
+    department_name  = serializers.CharField(source="department.name", read_only=True, default=None)
 
     class Meta:
         model = Task
         fields = (
-            "id", "title", "priority", "status", "department",
+            "id", "title", "priority", "status", "department", "department_name",
             "assigned_to_name", "assigned_by_name",
             "due_date", "created_at"
         )
 
 
 class TaskDetailSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source="department.name", read_only=True, default=None)
     comments = TaskCommentSerializer(many=True, read_only=True)
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True)
     assigned_by_name = serializers.CharField(source="assigned_by.full_name", read_only=True)

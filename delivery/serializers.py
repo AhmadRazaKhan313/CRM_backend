@@ -10,6 +10,7 @@ class MilestoneSerializer(serializers.ModelSerializer):
 
 
 class DeliveryListSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source="department.name", read_only=True, default=None)
     client_name      = serializers.CharField(source="client.full_name", read_only=True)
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True)
     milestone_count  = serializers.SerializerMethodField()
@@ -19,7 +20,7 @@ class DeliveryListSerializer(serializers.ModelSerializer):
         model  = Delivery
         fields = (
             "id", "title", "client", "client_name",
-            "department", "status", "progress",
+            "department", "department_name", "status", "progress",
             "assigned_to", "assigned_to_name",
             "start_date", "due_date", "delivered_at",
             "milestone_count", "done_count",
@@ -34,6 +35,7 @@ class DeliveryListSerializer(serializers.ModelSerializer):
 
 
 class DeliveryDetailSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source="department.name", read_only=True, default=None)
     client_name      = serializers.CharField(source="client.full_name", read_only=True)
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True)
     created_by_name  = serializers.CharField(source="created_by.full_name", read_only=True)
@@ -43,7 +45,7 @@ class DeliveryDetailSerializer(serializers.ModelSerializer):
         model  = Delivery
         fields = (
             "id", "title", "description", "client", "client_name",
-            "department", "status", "progress",
+            "department", "department_name", "status", "progress",
             "assigned_to", "assigned_to_name",
             "created_by_name",
             "start_date", "due_date", "delivered_at",

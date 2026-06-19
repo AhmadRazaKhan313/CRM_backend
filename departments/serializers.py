@@ -15,7 +15,7 @@ class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Department
         fields = (
-            "id", "name", "type", "description",
+            "id", "name", "description",
             "head", "head_name", "head_email",
             "is_active", "created_at",
             "employee_count", "lead_count",
@@ -24,34 +24,19 @@ class DepartmentSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at")
 
     def get_employee_count(self, obj):
+        # Department ka head + future: members. Abhi head-based.
         return User.objects.filter(
-            tenant     = obj.tenant,
-            department = obj.type,
-            is_active  = True
+            tenant=obj.tenant, headed_department=obj, is_active=True
         ).count()
 
     def get_lead_count(self, obj):
-        from leads.models import Lead
-        return Lead.objects.filter(
-            tenant      = obj.tenant,
-            department  = obj.type,
-            is_archived = False
-        ).count()
+        return obj.leads.filter(is_archived=False).count()
 
     def get_client_count(self, obj):
-        from clients.models import Client
-        return Client.objects.filter(
-            tenant      = obj.tenant,
-            department  = obj.type,
-            is_archived = False
-        ).count()
+        return obj.clients.filter(is_archived=False).count()
 
     def get_active_tasks(self, obj):
-        from tasks.models import Task
-        # ✅ FIX: is_archived=False add kiya — archived tasks count nahi hongi
-        return Task.objects.filter(
-            tenant      = obj.tenant,
-            department  = obj.type,
-            is_archived = False,
-            status__in  = ("pending", "in_progress")
+        return obj.tasks.filter(
+            is_archived=False,
+            status__in=("pending", "in_progress"),
         ).count()

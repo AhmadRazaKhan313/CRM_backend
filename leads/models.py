@@ -20,11 +20,6 @@ class Lead(TenantModel):
         EMAIL     = "email",     "Email"
         OTHER     = "other",     "Other"
 
-    class Department(models.TextChoices):
-        SALES = "sales", "Sales"
-        TECH  = "tech",  "Tech"
-        SEO   = "seo",   "SEO"
-
     serial_no        = models.CharField(max_length=20, blank=True, unique=False)
     full_name        = models.CharField(max_length=120)
     email            = models.EmailField(blank=True)
@@ -32,7 +27,7 @@ class Lead(TenantModel):
     country          = models.CharField(max_length=60, blank=True)
     company          = models.CharField(max_length=120, blank=True)
     source           = models.CharField(max_length=20, choices=Source.choices)
-    department       = models.CharField(max_length=20, choices=Department.choices)
+    department       = models.ForeignKey("departments.Department", on_delete=models.SET_NULL, null=True, blank=True, related_name="leads")
     status           = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     service_interest = models.CharField(max_length=120, blank=True)
     notes            = models.TextField(blank=True)

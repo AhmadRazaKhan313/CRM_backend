@@ -22,7 +22,7 @@ class Delivery(TenantModel):
     )
     title       = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    department  = models.CharField(max_length=20, blank=True)
+    department  = models.ForeignKey("departments.Department", on_delete=models.SET_NULL, null=True, blank=True, related_name="deliveries")
 
     status      = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
     progress    = models.PositiveIntegerField(default=0)  # 0-100

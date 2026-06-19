@@ -19,7 +19,7 @@ class Task(TenantModel):
     description = models.TextField(blank=True)
     priority    = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
     status      = models.CharField(max_length=15, choices=Status.choices, default=Status.PENDING)
-    department  = models.CharField(max_length=20, blank=True)
+    department  = models.ForeignKey("departments.Department", on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks")
 
     assigned_to = models.ForeignKey(
         "authentication.User",

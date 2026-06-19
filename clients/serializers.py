@@ -38,6 +38,7 @@ class ClientFileSerializer(serializers.ModelSerializer):
 
 class ClientListSerializer(serializers.ModelSerializer):
     assigned_to_name  = serializers.CharField(source="assigned_to.full_name",  read_only=True)
+    department_name   = serializers.CharField(source="department.name", read_only=True, default=None)
     created_by_name   = serializers.CharField(source="created_by.full_name",   read_only=True)
     converted_from_id = serializers.IntegerField(source="converted_from.id",   read_only=True)
 
@@ -45,7 +46,7 @@ class ClientListSerializer(serializers.ModelSerializer):
         model  = Client
         fields = (
             "id", "full_name", "email", "phone", "country", "company",
-            "department", "status", "tag",
+            "department", "department_name", "status", "tag",
             "assigned_to", "assigned_to_name",
             "converted_from_id",
             "created_by_name",
@@ -54,6 +55,7 @@ class ClientListSerializer(serializers.ModelSerializer):
 
 
 class ClientDetailSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source="department.name", read_only=True, default=None)
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True)
     created_by_name  = serializers.CharField(source="created_by.full_name",  read_only=True)
 
@@ -73,7 +75,7 @@ class ClientDetailSerializer(serializers.ModelSerializer):
         model  = Client
         fields = (
             "id", "full_name", "email", "phone", "country", "company",
-            "department", "status", "tag",
+            "department", "department_name", "status", "tag",
             "assigned_to", "assigned_to_name",
             "converted_from", "converted_from_name",
             "created_by_name",
@@ -96,8 +98,6 @@ class ClientCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context["request"]
-        if not validated_data.get("department") and request.user.department:
-            validated_data["department"] = request.user.department
         return Client.objects.create(
             tenant     = request.user.tenant,
             created_by = request.user,
