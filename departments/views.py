@@ -5,17 +5,16 @@ from django.shortcuts import get_object_or_404
 
 from .models import Department
 from .serializers import DepartmentSerializer
-from core.permissions import IsDeptHeadOrAbove, FeatureRequired
+from core.permissions import IsAuthenticatedInTenant, HasPermission, FeatureRequired
 
 FEATURE = FeatureRequired("departments_module")
 
 
-def can_manage(user):
-    return user.is_super_admin or user.role in ("ceo", "coo")
-
-
 class DepartmentListCreateView(APIView):
-    permission_classes = (IsDeptHeadOrAbove, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("departments.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("departments.view")()]
 
     def get(self, request):
         qs = Department.objects.filter(
@@ -25,20 +24,16 @@ class DepartmentListCreateView(APIView):
         return Response(DepartmentSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not can_manage(request.user):
-            return Response(
-                {"detail": "Only CEO/COO can create departments."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        # Prevent duplicate active department of same type
+        # Prevent duplicate department with same name
+        name = (request.data.get("name") or "").strip()
         if Department.objects.filter(
             tenant=request.user.tenant,
-            type=request.data.get("type"),
-            is_active=True
+            name__iexact=name,
+            is_active=True,
         ).exists():
             return Response(
-                {"detail": f"An active {request.data.get('type')} department already exists."},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": f"A department named '{name}' already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         serializer = DepartmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -47,18 +42,18 @@ class DepartmentListCreateView(APIView):
 
 
 class DepartmentDetailView(APIView):
-    permission_classes = (IsDeptHeadOrAbove, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("departments.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("departments.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("departments.view")()]
 
     def get(self, request, pk):
         dept = get_object_or_404(Department, pk=pk, tenant=request.user.tenant)
         return Response(DepartmentSerializer(dept).data)
 
     def patch(self, request, pk):
-        if not can_manage(request.user):
-            return Response(
-                {"detail": "Only CEO/COO can edit departments."},
-                status=status.HTTP_403_FORBIDDEN
-            )
         dept = get_object_or_404(Department, pk=pk, tenant=request.user.tenant)
         serializer = DepartmentSerializer(dept, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -66,11 +61,6 @@ class DepartmentDetailView(APIView):
         return Response(serializer.data)
 
     def delete(self, request, pk):
-        if not can_manage(request.user):
-            return Response(
-                {"detail": "Only CEO/COO can deactivate departments."},
-                status=status.HTTP_403_FORBIDDEN
-            )
         dept = get_object_or_404(Department, pk=pk, tenant=request.user.tenant)
         dept.is_active = False
         dept.head      = None

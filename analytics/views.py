@@ -10,13 +10,12 @@ from clients.models import Client, Payment
 from tasks.models import Task
 from authentication.models import User
 from reports.models import DailyReport
-from core.permissions import IsDeptHeadOrAbove, IsManagerOrAbove, FeatureRequired
+from core.permissions import IsAuthenticatedInTenant, HasPermission, FeatureRequired
 
 
 class OverviewAnalyticsView(APIView):
-    # FeatureRequired("analytics") — sirf wohi tenants access kar sakte hain
-    # jinka analytics flag ON hai
-    permission_classes = (IsAuthenticated, FeatureRequired("analytics"))
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FeatureRequired("analytics")(), HasPermission("analytics.view")()]
 
     def get(self, request):
         tenant = request.user.tenant
@@ -28,13 +27,6 @@ class OverviewAnalyticsView(APIView):
         client_qs = Client.objects.filter(tenant=tenant, is_archived=False)
         task_qs = Task.objects.filter(tenant=tenant)
         user_qs = User.objects.filter(tenant=tenant, is_active=True)
-
-        # dept filter
-        if request.user.role in ("dept_head", "lead_manager", "sales_manager"):
-            lead_qs = lead_qs.filter(department=request.user.department)
-            client_qs = client_qs.filter(department=request.user.department)
-            task_qs = task_qs.filter(department=request.user.department)
-            user_qs = user_qs.filter(department=request.user.department)
 
         # Lead stats
         lead_stats = {
@@ -116,7 +108,8 @@ class OverviewAnalyticsView(APIView):
 
 
 class KPIView(APIView):
-    permission_classes = (IsManagerOrAbove, FeatureRequired("analytics"))
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FeatureRequired("analytics")(), HasPermission("analytics.view")()]
 
     def get(self, request):
         tenant = request.user.tenant
@@ -124,8 +117,6 @@ class KPIView(APIView):
         month_start = today.replace(day=1)
 
         lead_qs = Lead.objects.filter(tenant=tenant, is_archived=False)
-        if request.user.role in ("lead_manager", "sales_manager"):
-            lead_qs = lead_qs.filter(department=request.user.department)
 
         total_leads = lead_qs.count()
         converted = lead_qs.filter(status="converted").count()
@@ -134,10 +125,8 @@ class KPIView(APIView):
         employees = User.objects.filter(
             tenant=tenant,
             is_active=True,
-            role__in=("lead_employee", "sales_employee")
+            is_super_admin=False,
         )
-        if request.user.role in ("lead_manager", "sales_manager"):
-            employees = employees.filter(department=request.user.department)
 
         employee_kpis = []
         for emp in employees:
@@ -150,8 +139,7 @@ class KPIView(APIView):
             ).count()
             employee_kpis.append({
                 "name": emp.full_name,
-                "role": emp.get_role_display(),
-                "department": emp.department,
+                "roles": emp.role_names,
                 "total_leads": emp_total,
                 "converted": emp_converted,
                 "conversion_rate": round((emp_converted / emp_total) * 100, 1) if emp_total else 0,

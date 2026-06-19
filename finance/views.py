@@ -7,7 +7,7 @@ from django.db.models import Sum, Q
 from decimal import Decimal
 from .models import Invoice, Expense
 from .serializers import InvoiceSerializer, ExpenseSerializer
-from core.permissions import IsManagerOrAbove, IsCEOOrAbove, FeatureRequired
+from core.permissions import IsAuthenticatedInTenant, HasPermission, FeatureRequired
 
 FEATURE = FeatureRequired("finance_module")
 
@@ -23,7 +23,8 @@ EXPENSE_PATCH_ALLOWED = {
 
 
 class FinanceOverviewView(APIView):
-    permission_classes = (IsCEOOrAbove, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.view")()]
 
     def get(self, request):
         tenant   = request.user.tenant
@@ -55,7 +56,10 @@ class FinanceOverviewView(APIView):
 
 
 class InvoiceListCreateView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.view")()]
 
     def get(self, request):
         qs = Invoice.objects.filter(tenant=request.user.tenant)
@@ -72,7 +76,12 @@ class InvoiceListCreateView(APIView):
 
 
 class InvoiceDetailView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.view")()]
 
     def _get(self, pk, tenant):
         return get_object_or_404(Invoice, pk=pk, tenant=tenant)
@@ -100,7 +109,10 @@ class InvoiceDetailView(APIView):
 
 
 class ExpenseListCreateView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.view")()]
 
     def get(self, request):
         qs = Expense.objects.filter(tenant=request.user.tenant)
@@ -121,7 +133,12 @@ class ExpenseListCreateView(APIView):
 
 
 class ExpenseDetailView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("finance.view")()]
 
     def _get(self, pk, tenant):
         return get_object_or_404(Expense, pk=pk, tenant=tenant)

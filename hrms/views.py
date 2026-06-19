@@ -10,8 +10,7 @@ import calendar
 
 from authentication.models import User
 from core.permissions import (
-    IsCEOOrAbove, IsCOOOrAbove, IsDeptHeadOrAbove,
-    IsManagerOrAbove, IsAnyEmployee, FeatureRequired
+    IsAuthenticatedInTenant, HasPermission, FeatureRequired, user_has_permission,
 )
 from core.mixins import TenantQuerysetMixin
 from .models import (
@@ -39,21 +38,23 @@ def tenant_qs(model, user):
 
 
 def can_approve_leave(user):
-    """CEO, COO, Dept Head sab approve kar sakte hain"""
-    return user.role in ("ceo", "coo", "dept_head") or user.is_super_admin
+    """hrms.approve permission wale leave approve kar sakte hain."""
+    from core.permissions import user_has_permission
+    return user.is_super_admin or user_has_permission(user, "hrms.approve")
 
 
 # ─── SHIFT VIEWS ─────────────────────────────────────────────
 
 class ShiftListCreateView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         qs = tenant_qs(Shift, request.user).filter(is_active=True)
         return Response(ShiftSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not IsDeptHeadOrAbove().has_permission(request, self):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.create")):
             return Response({"detail": "Permission denied."}, status=403)
         s = ShiftSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -62,7 +63,8 @@ class ShiftListCreateView(APIView):
 
 
 class ShiftDetailView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get_object(self, request, pk):
         return get_object_or_404(tenant_qs(Shift, request.user), pk=pk)
@@ -71,7 +73,7 @@ class ShiftDetailView(APIView):
         return Response(ShiftSerializer(self.get_object(request, pk)).data)
 
     def patch(self, request, pk):
-        if not IsDeptHeadOrAbove().has_permission(request, self):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.create")):
             return Response({"detail": "Permission denied."}, status=403)
         obj = self.get_object(request, pk)
         s = ShiftSerializer(obj, data=request.data, partial=True)
@@ -80,7 +82,7 @@ class ShiftDetailView(APIView):
         return Response(s.data)
 
     def delete(self, request, pk):
-        if not IsDeptHeadOrAbove().has_permission(request, self):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.create")):
             return Response({"detail": "Permission denied."}, status=403)
         obj = self.get_object(request, pk)
         obj.is_active = False
@@ -90,10 +92,11 @@ class ShiftDetailView(APIView):
 
 class AssignShiftView(APIView):
     """Employee ko shift assign karna"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def post(self, request):
-        if not IsDeptHeadOrAbove().has_permission(request, self):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.create")):
             return Response({"detail": "Permission denied."}, status=403)
         s = EmployeeShiftSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -120,7 +123,8 @@ class AttendanceListView(APIView):
     GET — Manager/Head: apni team ki attendance
           Employee: apni khud ki
     """
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         qs = tenant_qs(Attendance, request.user)
@@ -134,7 +138,8 @@ class AttendanceListView(APIView):
         year = request.query_params.get("year")
 
         # Employee sirf apni dekh sakta hai
-        if request.user.role in ("lead_employee", "sales_employee"):
+        from core.permissions import user_has_permission
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.edit")):
             qs = qs.filter(employee=request.user)
         elif emp_id:
             qs = qs.filter(employee_id=emp_id)
@@ -153,7 +158,7 @@ class AttendanceListView(APIView):
 
     def post(self, request):
         """Manager manually attendance mark kare"""
-        if not IsManagerOrAbove().has_permission(request, self):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.create")):
             return Response({"detail": "Permission denied."}, status=403)
         s = AttendanceSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -164,7 +169,8 @@ class AttendanceListView(APIView):
 
 class MyAttendanceCheckInView(APIView):
     """Employee apna check-in kare"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def post(self, request):
         today = date.today()
@@ -221,7 +227,8 @@ class MyAttendanceCheckInView(APIView):
 
 class MyAttendanceCheckOutView(APIView):
     """Employee apna check-out kare"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def post(self, request):
         today = date.today()
@@ -265,14 +272,13 @@ class MyAttendanceCheckOutView(APIView):
 
 class TodayAttendanceView(APIView):
     """Aaj ki summary — manager ke liye"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         today = date.today()
         qs = tenant_qs(Attendance, request.user).filter(date=today)
 
-        if request.user.role in ("dept_head", "lead_manager", "sales_manager"):
-            qs = qs.filter(employee__department=request.user.department)
 
         by_status = {}
         for a in qs:
@@ -297,7 +303,8 @@ class TodayAttendanceView(APIView):
 # ─── LEAVE VIEWS ─────────────────────────────────────────────
 
 class LeaveTypeListView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         qs = tenant_qs(LeaveType, request.user).filter(is_active=True)
@@ -313,13 +320,15 @@ class LeaveTypeListView(APIView):
 
 
 class LeaveRequestListCreateView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         qs = tenant_qs(LeaveRequest, request.user)
 
         # Employee: apni hi requests
-        if request.user.role in ("lead_employee", "sales_employee"):
+        from core.permissions import user_has_permission
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.edit")):
             qs = qs.filter(employee=request.user)
         else:
             emp_id = request.query_params.get("employee")
@@ -367,7 +376,8 @@ class LeaveRequestListCreateView(APIView):
 
 
 class LeaveRequestDetailView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get_object(self, request, pk):
         return get_object_or_404(tenant_qs(LeaveRequest, request.user), pk=pk)
@@ -389,7 +399,8 @@ class LeaveRequestDetailView(APIView):
 
 class LeaveApprovalView(APIView):
     """CEO, COO, Dept Head — leave approve/reject kare"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def post(self, request, pk):
         if not can_approve_leave(request.user):
@@ -430,14 +441,16 @@ class LeaveApprovalView(APIView):
 
 class LeaveBalanceView(APIView):
     """Employee ki leave balance dekho"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         year = int(request.query_params.get("year", date.today().year))
         emp_id = request.query_params.get("employee", request.user.pk)
 
         # Employees sirf apni dekh sakte hain
-        if request.user.role in ("lead_employee", "sales_employee"):
+        from core.permissions import user_has_permission
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.edit")):
             emp_id = request.user.pk
 
         emp = get_object_or_404(User, pk=emp_id, tenant=request.user.tenant)
@@ -458,7 +471,8 @@ class LeaveBalanceView(APIView):
 # ─── PAYROLL VIEWS ────────────────────────────────────────────
 
 class SalaryStructureView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         """List all salary structures — CEO/COO only"""
@@ -486,11 +500,13 @@ class SalaryStructureView(APIView):
 
 class EmployeeSalaryView(APIView):
     """Single employee ki salary"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request, emp_id):
         # Employees sirf apni dekh sakte hain
-        if request.user.role in ("lead_employee", "sales_employee"):
+        from core.permissions import user_has_permission
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.edit")):
             if str(request.user.pk) != str(emp_id):
                 return Response({"detail": "Permission denied."}, status=403)
         emp = get_object_or_404(User, pk=emp_id, tenant=request.user.tenant)
@@ -499,7 +515,8 @@ class EmployeeSalaryView(APIView):
 
 
 class PayrollRunListView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         if not IsCOOOrAbove().has_permission(request, self):
@@ -589,7 +606,8 @@ class PayrollRunListView(APIView):
 
 
 class PayrollRunDetailView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request, pk):
         if not IsCOOOrAbove().has_permission(request, self):
@@ -612,7 +630,8 @@ class PayrollRunDetailView(APIView):
 
 class MyPaySlipsView(APIView):
     """Employee apni payslips dekhe"""
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
         qs = PaySlip.objects.filter(
@@ -626,18 +645,17 @@ class MyPaySlipsView(APIView):
 # ─── HRMS DASHBOARD ──────────────────────────────────────────
 
 class HRMSDashboardView(APIView):
-    permission_classes = (IsAuthenticated, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("hrms.view")()]
 
     def get(self, request):
-        if not IsDeptHeadOrAbove().has_permission(request, self):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "hrms.create")):
             return Response({"detail": "Permission denied."}, status=403)
 
         today = date.today()
         tenant = request.user.tenant
 
         emp_qs = User.objects.filter(tenant=tenant, is_active=True).exclude(is_super_admin=True)
-        if request.user.role == "dept_head":
-            emp_qs = emp_qs.filter(department=request.user.department)
 
         # Today attendance
         att_today = Attendance.objects.filter(

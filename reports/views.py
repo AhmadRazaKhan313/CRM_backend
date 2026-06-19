@@ -8,7 +8,9 @@ from .serializers import (
     DailyReportListSerializer, DailyReportDetailSerializer,
     DailyReportCreateSerializer, ReportReviewSerializer
 )
-from core.permissions import IsAnyEmployee, IsManagerOrAbove, FeatureRequired
+from core.permissions import (
+    IsAuthenticatedInTenant, HasPermission, FeatureRequired, user_has_permission,
+)
 from notifications.utils import notify
 
 FEATURE = FeatureRequired("reports_module")
@@ -22,7 +24,10 @@ REPORT_PATCH_ALLOWED = {
 
 
 class DailyReportListCreateView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("reports.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("reports.view")()]
 
     def get(self, request):
         qs = DailyReport.objects.filter(
@@ -39,11 +44,8 @@ class DailyReportListCreateView(APIView):
         if status_f:    qs = qs.filter(status=status_f)
         if employee_id: qs = qs.filter(employee_id=employee_id)
 
-        if request.user.role in ("lead_employee", "sales_employee"):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "reports.view_all")):
             qs = qs.filter(employee=request.user)
-
-        if request.user.role in ("lead_manager", "sales_manager"):
-            qs = qs.filter(department=request.user.department)
 
         return Response(DailyReportListSerializer(qs, many=True).data)
 
@@ -57,7 +59,8 @@ class DailyReportListCreateView(APIView):
 
 
 class DailyReportDetailView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("reports.view")()]
 
     def _get_report(self, pk, user):
         return get_object_or_404(DailyReport, pk=pk, tenant=user.tenant)
@@ -83,7 +86,8 @@ class DailyReportDetailView(APIView):
 
 
 class ReportReviewView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("reports.approve")()]
 
     def post(self, request, pk):
         report = get_object_or_404(DailyReport, pk=pk, tenant=request.user.tenant)

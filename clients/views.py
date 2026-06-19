@@ -10,7 +10,9 @@ from .serializers import (
     ClientCreateSerializer, PaymentSerializer, ClientFileSerializer,
     SalesDetailSerializer, TechDetailSerializer, SEODetailSerializer,
 )
-from core.permissions import IsAnyEmployee, IsManagerOrAbove, FeatureRequired
+from core.permissions import (
+    IsAuthenticatedInTenant, HasPermission, FeatureRequired, user_has_permission,
+)
 from notifications.utils import notify
 
 FEATURE = FeatureRequired("clients_module")
@@ -28,7 +30,10 @@ PAYMENT_PATCH_ALLOWED = {
 # ─── Client List / Create ─────────────────────────────────────
 
 class ClientListCreateView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.view")()]
 
     def get(self, request):
         qs = Client.objects.filter(
@@ -51,11 +56,7 @@ class ClientListCreateView(APIView):
                 qs.filter(company__icontains=search)
             )
 
-        if request.user.is_super_admin or request.user.role in ("ceo", "coo", "sales_director"):
-            return Response(ClientListSerializer(qs, many=True).data)
-        if request.user.role in ("dept_head", "lead_manager", "sales_manager"):
-            qs = qs.filter(department=request.user.department)
-        elif request.user.role in ("lead_employee", "sales_employee"):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "clients.view_all")):
             qs = qs.filter(assigned_to=request.user)
 
         return Response(ClientListSerializer(qs, many=True).data)
@@ -70,11 +71,16 @@ class ClientListCreateView(APIView):
 # ─── Client Detail ────────────────────────────────────────────
 
 class ClientDetailView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.view")()]
 
     def _get_client(self, pk, user):
         client = get_object_or_404(Client, pk=pk, tenant=user.tenant, is_archived=False)
-        if user.role in ("lead_employee", "sales_employee"):
+        if not (user.is_super_admin or user_has_permission(user, "clients.view_all")):
             if client.assigned_to != user:
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied()
@@ -108,7 +114,8 @@ class ClientSalesDetailView(APIView):
     GET  /api/clients/<pk>/sales-detail/  — detail dekho
     POST /api/clients/<pk>/sales-detail/  — create ya update
     """
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.edit")()]
 
     def _get_client(self, pk, user):
         return get_object_or_404(Client, pk=pk, tenant=user.tenant, is_archived=False)
@@ -138,7 +145,8 @@ class ClientTechDetailView(APIView):
     GET  /api/clients/<pk>/tech-detail/
     POST /api/clients/<pk>/tech-detail/
     """
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.edit")()]
 
     def _get_client(self, pk, user):
         return get_object_or_404(Client, pk=pk, tenant=user.tenant, is_archived=False)
@@ -168,7 +176,8 @@ class ClientSEODetailView(APIView):
     GET  /api/clients/<pk>/seo-detail/
     POST /api/clients/<pk>/seo-detail/
     """
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.edit")()]
 
     def _get_client(self, pk, user):
         return get_object_or_404(Client, pk=pk, tenant=user.tenant, is_archived=False)
@@ -196,7 +205,8 @@ class ClientSEODetailView(APIView):
 # ─── Payments ─────────────────────────────────────────────────
 
 class ClientPaymentView(APIView):
-    permission_classes = (IsManagerOrAbove, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.edit")()]
 
     def get(self, request, pk):
         client   = get_object_or_404(Client, pk=pk, tenant=request.user.tenant)
@@ -228,7 +238,8 @@ class ClientPaymentView(APIView):
 # ─── Files ────────────────────────────────────────────────────
 
 class ClientFileView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("clients.edit")()]
 
     def post(self, request, pk):
         client = get_object_or_404(Client, pk=pk, tenant=request.user.tenant)

@@ -9,7 +9,9 @@ from .serializers import (
     DeliveryListSerializer, DeliveryDetailSerializer,
     DeliveryCreateSerializer, MilestoneSerializer,
 )
-from core.permissions import IsAnyEmployee, IsManagerOrAbove, FeatureRequired
+from core.permissions import (
+    IsAuthenticatedInTenant, HasPermission, FeatureRequired, user_has_permission,
+)
 
 FEATURE = FeatureRequired("delivery_module")
 
@@ -20,7 +22,10 @@ DELIVERY_PATCH_ALLOWED = {
 
 
 class DeliveryListCreateView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("delivery.create")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("delivery.view")()]
 
     def get(self, request):
         qs = Delivery.objects.filter(
@@ -33,8 +38,7 @@ class DeliveryListCreateView(APIView):
         if status_f: qs = qs.filter(status=status_f)
         if client_f: qs = qs.filter(client_id=client_f)
 
-        # Employees sirf apni assigned deliveries dekhein
-        if request.user.role in ("lead_employee", "sales_employee"):
+        if not (request.user.is_super_admin or user_has_permission(request.user, "delivery.view_all")):
             qs = qs.filter(assigned_to=request.user)
 
         return Response(DeliveryListSerializer(qs, many=True).data)
@@ -47,7 +51,12 @@ class DeliveryListCreateView(APIView):
 
 
 class DeliveryDetailView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("delivery.delete")()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("delivery.edit")()]
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("delivery.view")()]
 
     def _get(self, pk, user):
         return get_object_or_404(Delivery, pk=pk, tenant=user.tenant, is_archived=False)
@@ -72,8 +81,6 @@ class DeliveryDetailView(APIView):
         return Response(DeliveryDetailSerializer(delivery).data)
 
     def delete(self, request, pk):
-        if not (request.user.is_super_admin or request.user.role in ("ceo", "coo", "dept_head")):
-            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
         delivery = self._get(pk, request.user)
         delivery.is_archived = True
         delivery.save()
@@ -81,7 +88,8 @@ class DeliveryDetailView(APIView):
 
 
 class MilestoneView(APIView):
-    permission_classes = (IsAnyEmployee, FEATURE)
+    def get_permissions(self):
+        return [IsAuthenticatedInTenant(), FEATURE(), HasPermission("delivery.edit")()]
 
     def post(self, request, pk):
         delivery  = get_object_or_404(Delivery, pk=pk, tenant=request.user.tenant)
