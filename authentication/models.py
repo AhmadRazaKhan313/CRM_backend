@@ -1,11 +1,6 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 
-class DEPARTMENTS(models.TextChoices):
-    SALES = "sales", "Sales"
-    TECH = "tech", "Tech"
-    SEO = "seo", "SEO"
-
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra):
@@ -24,25 +19,13 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    class ROLES(models.TextChoices):
-        CEO = "ceo", "CEO"
-        COO = "coo", "COO"
-        DEPT_HEAD = "dept_head", "Department Head"
-        SALES_DIRECTOR = "sales_director", "Sales Director"
-        LEAD_MANAGER = "lead_manager", "Lead Manager"
-        SALES_MANAGER = "sales_manager", "Sales Manager"
-        LEAD_EMPLOYEE = "lead_employee", "Lead Employee"
-        SALES_EMPLOYEE = "sales_employee", "Sales Employee"
-
-    class DEPARTMENTS(models.TextChoices):
-        SALES = "sales", "Sales"
-        TECH = "tech", "Tech"
-        SEO = "seo", "SEO"
-
-    email = models.EmailField(unique=True)
-    full_name = models.CharField(max_length=120)
-    role = models.CharField(max_length=20, choices=ROLES.choices)
-    department = models.CharField(max_length=20, choices=DEPARTMENTS.choices, blank=True, null=True)
+    """
+    User hamesha kisi organization (tenant) ke andar hota hai.
+    Role custom hota hai — UserRole table se assign hoti hai.
+    Sirf is_super_admin ek special system-level flag hai.
+    """
+    email      = models.EmailField(unique=True)
+    full_name  = models.CharField(max_length=120)
     employee_id = models.CharField(max_length=20, unique=True, blank=True, null=True)
 
     tenant = models.ForeignKey(
@@ -50,21 +33,23 @@ class User(AbstractBaseUser, PermissionsMixin):
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name="users"
+        related_name="users",
     )
+
+    # Sirf yeh ek system-level role hai — website owner.
     is_super_admin = models.BooleanField(default=False)
 
     is_active = models.BooleanField(default=True)
-    is_staff = models.BooleanField(default=False)
+    is_staff  = models.BooleanField(default=False)
 
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
-    phone = models.CharField(max_length=20, blank=True)
+    phone  = models.CharField(max_length=20, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["full_name", "role"]
+    USERNAME_FIELD  = "email"
+    REQUIRED_FIELDS = ["full_name"]
 
     objects = UserManager()
 
@@ -73,20 +58,16 @@ class User(AbstractBaseUser, PermissionsMixin):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.full_name} ({self.get_role_display()})"
+        return f"{self.full_name} ({self.email})"
 
     @property
-    def is_top_level(self):
-        return self.role in (self.ROLES.CEO, self.ROLES.COO)
-
-    @property
-    def dept_code(self):
-        codes = {"sales": "SALE", "tech": "TEC", "seo": "SEO"}
-        return codes.get(self.department, "GEN")
+    def role_names(self):
+        """Sab custom roles ke naam jo is user ko assign hain."""
+        return list(self.assigned_roles.values_list("role__name", flat=True))
 
     def save(self, *args, **kwargs):
-        if not self.employee_id and self.role and self.pk is None:
-            super().save(*args, **kwargs)
-            self.employee_id = f"{self.dept_code}-{self.get_role_display()[:3].upper()}-{str(self.pk).zfill(3)}"
-            kwargs["force_insert"] = False
+        creating = self.pk is None
         super().save(*args, **kwargs)
+        if creating and not self.employee_id:
+            self.employee_id = f"EMP-{str(self.pk).zfill(4)}"
+            super().save(update_fields=["employee_id"])
